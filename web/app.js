@@ -13,7 +13,7 @@ const FORM_FIELDS = ["company", "title", "dateApplied", "status", "location", "s
 
 let APPS = [];
 let editing = null;
-let filterStatus = "all", filterState = "", filterDate = "", query = "";
+let filterStatus = "all", filterState = "", filterDate = "", filterOpt = false, query = "";
 let mfaSession = null, mfaUser = null; // pending login challenge
 
 // ---------- Cognito (no SDK) -----------------------------------------------
@@ -96,7 +96,10 @@ async function load() {
   APPS = (await api("GET", "/applications")).applications || [];
   render();
 }
-function render() { renderStats(); renderStateFilter(); renderFilters(); renderList(); renderActivity(); }
+function render() {
+  renderStats(); renderStateFilter(); renderFilters(); renderList(); renderActivity();
+  const el = $("#side-count"); if (el) el.textContent = `${APPS.length} application${APPS.length === 1 ? "" : "s"} tracked`;
+}
 
 function renderStats() {
   const n = APPS.length;
@@ -128,6 +131,7 @@ function visible() {
   if (filterStatus !== "all") rows = rows.filter((a) => a.status === filterStatus);
   if (filterState) rows = rows.filter((a) => a.state === filterState);
   if (filterDate) rows = rows.filter((a) => a.dateApplied === filterDate);
+  if (filterOpt) rows = rows.filter((a) => a.sponsors);
   if (query) {
     const q = query.toLowerCase();
     rows = rows.filter((a) => [a.company, a.title, a.location, a.state, a.tags, a.requiredSkills].join(" ").toLowerCase().includes(q));
@@ -137,7 +141,7 @@ function visible() {
 
 function renderList() {
   const rows = visible();
-  $("#f-clear").hidden = !(filterState || filterDate);
+  $("#f-clear").hidden = !(filterState || filterDate || filterOpt);
   $("#empty").hidden = APPS.length !== 0;
   $("#list").innerHTML = rows.map(card).join("");
   $$("#list .card").forEach((c) => (c.onclick = () => openModal(c.dataset.id)));
@@ -148,8 +152,9 @@ function card(a) {
   const spons = a.sponsors ? `<span class="tag sp">sponsors</span>` : "";
   const st = a.state ? `<span class="tag st">${esc(a.state)}</span>` : "";
   const tags = (a.tags || "").split(",").map((t) => t.trim()).filter(Boolean).slice(0, 3).map((t) => `<span class="tag">${esc(t)}</span>`).join("");
+  const ini = esc((a.company || "?").trim().charAt(0).toUpperCase() || "?");
   return `<article class="card" data-id="${a.appId}">
-    <div class="card-h"><b>${esc(a.company || "—")}</b><span class="pill ${a.status}">${a.status}</span></div>
+    <div class="card-h"><span class="card-ico">${ini}</span><b>${esc(a.company || "—")}</b><span class="pill ${a.status}">${a.status}</span></div>
     <div class="role">${esc(a.title || "")}</div>
     <div class="meta">${esc(a.dateApplied || "")}${a.location ? " · " + esc(a.location) : ""}${a.workMode ? " · " + esc(a.workMode) : ""}</div>
     <div class="tags">${st}${spons}${tags}</div>${due}</article>`;
@@ -316,7 +321,13 @@ function fillStateSelects() {
 
 function show(authed) {
   $("#login").hidden = authed; $("#app").hidden = !authed;
-  if (authed) { $("#who").textContent = localStorage.getItem(LS.email) || ""; load().catch((e) => console.error(e)); }
+  if (authed) {
+    const email = localStorage.getItem(LS.email) || "";
+    const ini = (email[0] || "A").toUpperCase();
+    $("#who").textContent = email; $("#who2").textContent = email;
+    $("#avatar-i").textContent = ini; $("#avatar-i2").textContent = ini;
+    load().catch((e) => console.error(e));
+  }
 }
 
 $("#login-form").onsubmit = async (e) => {
@@ -332,6 +343,15 @@ $("#mfa-btn").onclick = async () => {
 };
 $("#logout").onclick = logout;
 $("#settings-btn").onclick = openSettings;
+// account popover
+$("#acct-btn").onclick = (e) => { e.stopPropagation(); $("#acct-pop").hidden = !$("#acct-pop").hidden; };
+document.addEventListener("click", (e) => { const p = $("#acct-pop"); if (p && !p.hidden && !e.target.closest(".pop-wrap")) p.hidden = true; });
+// mobile drawer
+const closeDrawer = () => document.body.classList.remove("nav-open");
+$("#hamburger").onclick = () => document.body.classList.toggle("nav-open");
+$("#nav-backdrop").onclick = closeDrawer;
+$("#home-logo").onclick = () => { filterStatus = "all"; filterState = ""; filterDate = ""; query = ""; $("#search").value = ""; $("#f-state").value = ""; $("#f-date").value = ""; render(); closeDrawer(); window.scrollTo(0, 0); };
+$("#sidebar").addEventListener("click", (e) => { if (e.target.closest(".chip")) closeDrawer(); });
 $("#settings-close").onclick = () => ($("#settings").hidden = true);
 $("#pw-save").onclick = changePassword;
 $("#mfa-enable").onclick = () => mfaEnable().catch((e) => ($("#mfa-msg").textContent = e.message));
@@ -347,7 +367,8 @@ $("#export").onclick = exportCsv;
 $("#activity-btn").onclick = () => ($("#activity").hidden = !$("#activity").hidden);
 $("#f-state").onchange = (e) => { filterState = e.target.value; renderList(); };
 $("#f-date").onchange = (e) => { filterDate = e.target.value; renderActivity(); renderList(); };
-$("#f-clear").onclick = () => { filterState = ""; filterDate = ""; $("#f-state").value = ""; $("#f-date").value = ""; renderActivity(); renderList(); renderStateFilter(); };
+$("#f-opt").onchange = (e) => { filterOpt = e.target.checked; renderList(); };
+$("#f-clear").onclick = () => { filterState = ""; filterDate = ""; filterOpt = false; $("#f-state").value = ""; $("#f-date").value = ""; $("#f-opt").checked = false; renderActivity(); renderList(); renderStateFilter(); };
 $("#search").oninput = (e) => { query = e.target.value; renderList(); };
 document.onkeydown = (e) => { if (e.key === "/" && !$("#app").hidden && !["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName)) { e.preventDefault(); $("#search").focus(); } };
 

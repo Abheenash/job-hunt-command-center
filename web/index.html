@@ -4,26 +4,30 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Job Hunt Command Center</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23ec7211'/%3E%3Ctext x='16' y='23' font-size='18' text-anchor='middle' fill='%23fff' font-family='Arial'%3EJ%3C/text%3E%3C/svg%3E" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23ff9900'/%3E%3Ctext x='16' y='23' font-size='18' text-anchor='middle' fill='%23161d26' font-family='Arial' font-weight='700'%3EJ%3C/text%3E%3C/svg%3E" />
   <link rel="stylesheet" href="style.css" />
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+    <symbol id="ic-search" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M10.5 3a7.5 7.5 0 1 1 0 15 7.5 7.5 0 0 1 0-15zM16 16l5 5"/></symbol>
+    <symbol id="ic-menu" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M4 6h16M4 12h16M4 18h16"/></symbol>
+  </defs></svg>
 </head>
 <body>
   <!-- LOGIN -->
   <section id="login" class="login" hidden>
     <form id="login-form" class="login-card">
-      <div class="brand">🎯 Job Hunt Command Center</div>
+      <div class="brand"><span class="smile"></span> Job Hunt Command Center</div>
       <p class="sub">Your whole search in one place. Sign in.</p>
       <div id="login-step">
         <label for="email">Email</label>
         <input id="email" type="email" autocomplete="username" required />
         <label for="password">Password</label>
         <input id="password" type="password" autocomplete="current-password" required />
-        <button type="submit" id="login-btn">Sign in</button>
+        <button type="submit" id="login-btn" class="btn primary wide">Sign in</button>
       </div>
       <div id="mfa-step" hidden>
         <label for="mfa-code">Authenticator code</label>
         <input id="mfa-code" inputmode="numeric" autocomplete="one-time-code" placeholder="6-digit code" />
-        <button type="button" id="mfa-btn">Verify &amp; sign in</button>
+        <button type="button" id="mfa-btn" class="btn primary wide">Verify &amp; sign in</button>
       </div>
       <p class="err" id="login-err"></p>
     </form>
@@ -31,48 +35,81 @@
 
   <!-- APP -->
   <div id="app" hidden>
-    <header class="top">
-      <div class="brand-sm">🎯 Command Center</div>
-      <input id="search" type="search" placeholder="Search company, role, tag… (/)" />
-      <div class="top-r">
-        <span id="who" class="who"></span>
-        <button id="settings-btn" class="ghost" title="Settings">⚙</button>
-        <button id="logout" class="ghost">Sign out</button>
+    <header class="gnav">
+      <button class="hamburger" id="hamburger" aria-label="Menu"><svg class="i"><use href="#ic-menu"/></svg></button>
+      <a class="logo" id="home-logo" title="Home"><span class="smile"></span><b>Command&nbsp;Center</b></a>
+      <div class="gnav-search">
+        <svg class="i" style="width:14px;height:14px;color:#5f6b7a"><use href="#ic-search"/></svg>
+        <input id="search" type="search" placeholder="Search company, role, tag… (press /)" autocomplete="off" />
+        <kbd>/</kbd>
+      </div>
+      <div class="gnav-r">
+        <button class="gnav-chip" id="settings-btn"><span class="i">⚙</span><span class="label">Settings</span></button>
+        <div class="pop-wrap">
+          <button class="gnav-acct" id="acct-btn"><span class="avatar-i" id="avatar-i">A</span><span class="name" id="who"></span><span class="caret">▾</span></button>
+          <div class="pop pop-acct" id="acct-pop" hidden>
+            <div class="pop-acct-head"><span class="avatar-i big" id="avatar-i2">A</span><div><b id="who2"></b><small>Job Hunt Command Center</small></div></div>
+            <a href="https://abheenash.com" target="_blank" rel="noopener">↩ Back to portfolio</a>
+            <button class="acct-link" id="logout">Sign out</button>
+          </div>
+        </div>
       </div>
     </header>
+    <div class="nav-backdrop" id="nav-backdrop"></div>
 
-    <section class="stats" id="stats"></section>
+    <div class="shell">
+      <aside class="sidebar" id="sidebar">
+        <div class="side-title">🎯 Pipeline</div>
+        <nav id="filters"></nav>
+        <div class="side-sub">Filter</div>
+        <div class="side-filters">
+          <select id="f-state" class="side-input"><option value="">All states</option></select>
+          <input id="f-date" type="date" class="side-input" title="Filter by date applied" />
+          <label class="side-check"><input type="checkbox" id="f-opt" /> OPT / sponsors only</label>
+          <button id="f-clear" class="btn wide" hidden>Clear filters</button>
+        </div>
+        <div class="side-status" id="side-status">
+          <div><span class="dot">●</span> Open to work: <b>yes</b></div>
+          <div id="side-count">—</div>
+          <div>☕ Keep applying.</div>
+        </div>
+      </aside>
 
-    <div class="toolbar">
-      <div class="filters" id="filters"></div>
-      <div class="tools">
-        <select id="f-state" class="mini"><option value="">All states</option></select>
-        <input id="f-date" type="date" class="mini" title="Filter by date applied" />
-        <button id="f-clear" class="ghost mini" hidden>clear</button>
-        <button id="activity-btn" class="ghost">📅 By date</button>
-        <button id="export" class="ghost">⬇ CSV</button>
-        <button id="add" class="primary">+ Log application</button>
-      </div>
+      <main>
+        <div class="page-head">
+          <div><h1>Applications</h1><p class="sub">Every application, the résumé you sent, and where each one stands.</p></div>
+          <div class="head-actions">
+            <button id="activity-btn" class="btn">📅 By date</button>
+            <button id="export" class="btn">⬇ CSV</button>
+            <button id="add" class="btn primary">+ Log application</button>
+          </div>
+        </div>
+
+        <div class="grid widgets" id="stats"></div>
+        <section id="activity" class="container" hidden></section>
+        <section id="list" class="grid projects-grid"></section>
+        <p id="empty" class="empty" hidden>No applications yet. Hit <b>+ Log application</b> to start tracking.</p>
+      </main>
     </div>
 
-    <section id="activity" class="activity" hidden></section>
-
-    <section id="list" class="cards"></section>
-    <p id="empty" class="empty" hidden>No applications yet. Hit <b>+ Log application</b> to start tracking.</p>
+    <footer class="siteftr">
+      <div class="ftr-left">
+        <a href="https://abheenash.com" target="_blank" rel="noopener">↩ Portfolio</a>
+        <a href="https://github.com/Abheenash/job-hunt-command-center" target="_blank" rel="noopener">Source</a>
+      </div>
+      <div class="ftr-right">Built &amp; run on AWS · Cognito · Lambda · DynamoDB · S3 · Bedrock · <span class="ftr-muted">a personal tool by Rajolu Abheenash</span></div>
+    </footer>
   </div>
 
   <!-- APPLICATION EDITOR (modal) -->
   <div id="modal" class="modal" hidden>
     <div class="sheet">
-      <div class="sheet-head">
-        <h2 id="sheet-title">Log application</h2>
-        <button id="sheet-close" class="x">✕</button>
-      </div>
+      <div class="sheet-head"><h2 id="sheet-title">Log application</h2><button id="sheet-close" class="x">✕</button></div>
 
       <div class="jd-box">
         <label>✨ Paste the job description — AI fills the fields for you</label>
         <textarea id="jd" rows="4" placeholder="Paste the full JD here, then hit Autofill. (The text is saved for interview prep too.)"></textarea>
-        <button type="button" id="autofill" class="primary sm">✨ Autofill from JD</button>
+        <button type="button" id="autofill" class="btn primary">✨ Autofill from JD</button>
         <span id="autofill-status" class="filenote"></span>
       </div>
 
@@ -85,14 +122,10 @@
         </label>
         <label>Location<input name="location" placeholder="City / Remote" /></label>
         <label>State<select name="state" id="state-select"><option value="">—</option></select></label>
-        <label>Work mode
-          <select name="workMode"><option value="">—</option><option>Remote</option><option>Hybrid</option><option>On-site</option></select>
-        </label>
+        <label>Work mode<select name="workMode"><option value="">—</option><option>Remote</option><option>Hybrid</option><option>On-site</option></select></label>
         <label>Seniority<input name="seniority" placeholder="Junior / Mid / Senior" /></label>
         <label>Salary range<input name="salary" placeholder="$120k–$150k" /></label>
-        <label>Source
-          <select name="source"><option value="">—</option><option>LinkedIn</option><option>Referral</option><option>Company site</option><option>Indeed</option><option>Other</option></select>
-        </label>
+        <label>Source<select name="source"><option value="">—</option><option>LinkedIn</option><option>Referral</option><option>Company site</option><option>Indeed</option><option>Other</option></select></label>
         <label>Posting URL<input name="url" type="url" placeholder="https://…" /></label>
         <label class="check2"><input type="checkbox" name="sponsors" /> Sponsors / accepts OPT</label>
         <label>Recruiter name<input name="contactName" /></label>
@@ -102,16 +135,13 @@
         <label>Tags (comma-sep)<input name="tags" placeholder="aws, remote, devops" /></label>
         <label class="full">Required skills<input name="requiredSkills" placeholder="auto-filled from the JD" /></label>
         <label class="full">Nice to have<input name="niceToHave" placeholder="auto-filled from the JD" /></label>
-        <label class="full">Résumé you applied with (PDF)
-          <input type="file" id="resume" accept="application/pdf" />
-          <span id="resume-status" class="filenote"></span>
-        </label>
+        <label class="full">Résumé you applied with (PDF)<input type="file" id="resume" accept="application/pdf" /><span id="resume-status" class="filenote"></span></label>
         <div class="full docs" id="docs"></div>
         <div class="full sheet-actions">
-          <button type="button" id="delete" class="danger" hidden>Delete</button>
+          <button type="button" id="delete" class="btn danger" hidden>Delete</button>
           <span style="flex:1"></span>
-          <button type="button" id="cancel" class="ghost">Cancel</button>
-          <button type="submit" class="primary" id="save">Save</button>
+          <button type="button" id="cancel" class="btn">Cancel</button>
+          <button type="submit" class="btn primary" id="save">Save</button>
         </div>
         <p class="err full" id="form-err"></p>
       </form>
@@ -128,26 +158,21 @@
           <label>Current password<input id="pw-old" type="password" autocomplete="current-password" /></label>
           <label>New password<input id="pw-new" type="password" autocomplete="new-password" /></label>
           <p class="filenote">Min 10 chars, upper + lower + number.</p>
-          <button id="pw-save" class="primary sm">Update password</button>
+          <button id="pw-save" class="btn primary">Update password</button>
           <p class="err" id="pw-msg"></p>
         </section>
-
         <section class="setblock">
           <h3>🛡️ Two-factor (authenticator app)</h3>
           <p class="filenote" id="mfa-state">Checking…</p>
-          <div id="mfa-off" hidden>
-            <button id="mfa-enable" class="primary sm">Enable MFA</button>
-          </div>
+          <div id="mfa-off" hidden><button id="mfa-enable" class="btn primary">Enable MFA</button></div>
           <div id="mfa-setup" hidden>
-            <p class="filenote">Scan or paste this secret into your authenticator app (Google Authenticator, Authy…):</p>
+            <p class="filenote">Scan or paste this secret into your authenticator app:</p>
             <code id="mfa-secret" class="secret"></code>
             <a id="mfa-uri" class="filenote" href="#" target="_blank" rel="noopener">open in app ↗</a>
             <label>Enter the 6-digit code to confirm<input id="mfa-verify-code" inputmode="numeric" placeholder="123456" /></label>
-            <button id="mfa-verify" class="primary sm">Confirm &amp; turn on</button>
+            <button id="mfa-verify" class="btn primary">Confirm &amp; turn on</button>
           </div>
-          <div id="mfa-on" hidden>
-            <button id="mfa-disable" class="danger sm">Disable MFA</button>
-          </div>
+          <div id="mfa-on" hidden><button id="mfa-disable" class="btn danger">Disable MFA</button></div>
           <p class="err" id="mfa-msg"></p>
         </section>
       </div>
