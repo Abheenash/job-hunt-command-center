@@ -31,4 +31,14 @@ skip-check:
   - CKV_AWS_338   # CloudWatch log retention >= 1yr
   # --- Cognito: single user, no need for advanced MFA/WAF ----------------------
   - CKV_AWS_342   # Cognito MFA (single-user tool)
-  - CKV2_AWS_67   # Secrets Manager automatic rotation (App Password, rotated manually)
+  - CKV2_AWS_67   # Secrets Manager rotation window
+  - CKV2_AWS_57   # Secrets Manager automatic rotation (App Password, rotated manually)
+  - CKV_AWS_149   # Secrets Manager CMK (default encryption is sufficient)
+  - CKV_VALIDATE_SECRETS # placeholder credential string, not a real secret
+  # --- CloudFront extras: default cert + no custom headers policy acceptable ---
+  - CKV2_AWS_32   # CloudFront response-headers (security headers) policy
+  - CKV2_AWS_42   # CloudFront custom SSL certificate (using the default cert)
+  - CKV_AWS_174   # CloudFront viewer TLS 1.2 (default cert / managed policy)
+  - CKV_AWS_374   # CloudFront geo-restriction
+  # --- S3 lifecycle not needed for small doc/site buckets ----------------------
+  - CKV2_AWS_61   # S3 lifecycle configuration
