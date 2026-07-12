@@ -138,10 +138,14 @@ resource "aws_apigatewayv2_integration" "api" {
   payload_format_version = "2.0"
 }
 
-# Catch-all route; the Lambda routes internally on method + path.
-resource "aws_apigatewayv2_route" "default" {
+# Method-specific catch-all routes (the Lambda routes internally on path).
+# Deliberately NOT a $default/ANY route: those would also match OPTIONS and send
+# preflight through the JWT authorizer (401). By defining only GET/POST/PUT/DELETE,
+# OPTIONS has no matching route, so API Gateway's automatic CORS answers preflight.
+resource "aws_apigatewayv2_route" "api" {
+  for_each           = toset(["GET", "POST", "PUT", "DELETE"])
   api_id             = aws_apigatewayv2_api.api.id
-  route_key          = "$default"
+  route_key          = "${each.value} /{proxy+}"
   target             = "integrations/${aws_apigatewayv2_integration.api.id}"
   authorization_type = "JWT"
   authorizer_id      = aws_apigatewayv2_authorizer.jwt.id
