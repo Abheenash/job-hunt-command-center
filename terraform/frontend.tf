@@ -24,6 +24,7 @@ resource "aws_cloudfront_distribution" "site" {
   enabled             = true
   default_root_object = "index.html"
   comment             = "${local.name} dashboard"
+  aliases             = [var.domain]
 
   origin {
     domain_name              = aws_s3_bucket.site.bucket_regional_domain_name
@@ -54,7 +55,11 @@ resource "aws_cloudfront_distribution" "site" {
   restrictions {
     geo_restriction { restriction_type = "none" }
   }
-  viewer_certificate { cloudfront_default_certificate = true }
+  viewer_certificate {
+    acm_certificate_arn      = aws_acm_certificate_validation.site.certificate_arn
+    ssl_support_method       = "sni-only"
+    minimum_protocol_version = "TLSv1.2_2021"
+  }
   price_class = "PriceClass_100"
   tags        = local.tags
 }

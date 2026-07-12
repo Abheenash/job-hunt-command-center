@@ -21,3 +21,7 @@ output "docs_bucket" {
 output "dashboard_url" {
   value = "https://${aws_cloudfront_distribution.site.domain_name}"
 }
+
+output "custom_domain" {
+  value = "https://${var.domain}"
+}

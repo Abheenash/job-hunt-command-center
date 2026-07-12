@@ -77,7 +77,7 @@ resource "aws_s3_bucket_cors_configuration" "docs" {
   bucket = aws_s3_bucket.docs.id
   cors_rule {
     allowed_methods = ["PUT", "GET"]
-    allowed_origins = ["https://${aws_cloudfront_distribution.site.domain_name}", "http://localhost:*"]
+    allowed_origins = ["https://${aws_cloudfront_distribution.site.domain_name}", "https://${var.domain}", "http://localhost:*"]
     allowed_headers = ["*"]
     expose_headers  = ["ETag"]
     max_age_seconds = 3000

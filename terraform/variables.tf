@@ -13,3 +13,15 @@ variable "owner_email" {
   type        = string
   default     = "abheenash007@gmail.com"
 }
+
+variable "domain" {
+  description = "Custom domain for the dashboard"
+  type        = string
+  default     = "jobs.abheenash.com"
+}
+
+variable "hosted_zone_id" {
+  description = "Route53 hosted zone for abheenash.com"
+  type        = string
+  default     = "Z05680081EH9N6652XDUI"
+}
