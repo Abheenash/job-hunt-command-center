@@ -13,12 +13,6 @@ resource "aws_cognito_user_pool" "users" {
     require_symbols   = false
   }
 
-  # Optional TOTP (authenticator-app) MFA — the user can turn it on in Settings.
-  mfa_configuration = "OPTIONAL"
-  software_token_mfa_configuration {
-    enabled = true
-  }
-
   tags = local.tags
 }
 

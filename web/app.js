@@ -1,4 +1,4 @@
-// Job Hunt Command Center — dashboard.
+// Job Tracker — dashboard.
 const CFG = window.JHCC_CONFIG || {};
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -12,9 +12,8 @@ const FORM_FIELDS = ["company", "title", "dateApplied", "status", "location", "s
   "tags", "requiredSkills", "niceToHave"];
 
 let APPS = [];
-let editing = null;
+let editing = null, currentDetail = null;
 let filterStatus = "all", filterState = "", filterDate = "", filterOpt = false, query = "";
-let mfaSession = null, mfaUser = null; // pending login challenge
 
 // ---------- Cognito (no SDK) -----------------------------------------------
 async function cognito(target, body) {
@@ -40,40 +39,19 @@ async function login(email, password) {
     AuthFlow: "USER_PASSWORD_AUTH", ClientId: CFG.clientId,
     AuthParameters: { USERNAME: email, PASSWORD: password },
   });
-  if (j.ChallengeName === "SOFTWARE_TOKEN_MFA") {
-    mfaSession = j.Session; mfaUser = email;
-    $("#login-step").hidden = true; $("#mfa-step").hidden = false; $("#mfa-code").focus();
-    return;
-  }
   storeTokens(j.AuthenticationResult);
   localStorage.setItem(LS.email, email);
-  show(true);
-}
-
-async function mfaLogin(code) {
-  const j = await cognito("RespondToAuthChallenge", {
-    ChallengeName: "SOFTWARE_TOKEN_MFA", ClientId: CFG.clientId, Session: mfaSession,
-    ChallengeResponses: { USERNAME: mfaUser, SOFTWARE_TOKEN_MFA_CODE: code },
-  });
-  storeTokens(j.AuthenticationResult);
-  localStorage.setItem(LS.email, mfaUser);
-  mfaSession = null;
   show(true);
 }
 
 async function refresh() {
   const rt = localStorage.getItem(LS.refresh);
   if (!rt) throw new Error("no refresh token");
-  const j = await cognito("InitiateAuth", {
-    AuthFlow: "REFRESH_TOKEN_AUTH", ClientId: CFG.clientId, AuthParameters: { REFRESH_TOKEN: rt },
-  });
+  const j = await cognito("InitiateAuth", { AuthFlow: "REFRESH_TOKEN_AUTH", ClientId: CFG.clientId, AuthParameters: { REFRESH_TOKEN: rt } });
   storeTokens(j.AuthenticationResult);
 }
 
-function logout() {
-  Object.values(LS).forEach((k) => localStorage.removeItem(k));
-  location.reload();
-}
+function logout() { Object.values(LS).forEach((k) => localStorage.removeItem(k)); location.reload(); }
 
 // ---------- API ------------------------------------------------------------
 async function api(method, path, body, _retried) {
@@ -113,8 +91,7 @@ function renderStats() {
 
 function renderStateFilter() {
   const present = [...new Set(APPS.map((a) => a.state).filter(Boolean))].sort();
-  const sel = $("#f-state");
-  const cur = sel.value;
+  const sel = $("#f-state"), cur = sel.value;
   sel.innerHTML = `<option value="">All states</option>` + present.map((s) => `<option ${s === cur ? "selected" : ""}>${esc(s)}</option>`).join("");
 }
 
@@ -123,7 +100,7 @@ function renderFilters() {
   STATUSES.forEach((s) => (counts[s] = APPS.filter((a) => a.status === s).length));
   $("#filters").innerHTML = ["all", ...STATUSES].map((k) =>
     `<button class="chip ${filterStatus === k ? "on" : ""}" data-f="${k}">${k}<span>${counts[k] || 0}</span></button>`).join("");
-  $$("#filters .chip").forEach((b) => (b.onclick = () => { filterStatus = b.dataset.f; renderFilters(); renderList(); }));
+  $$("#filters .chip").forEach((b) => (b.onclick = () => { filterStatus = b.dataset.f; renderFilters(); renderList(); if (!$("#detail-view").hidden) closeDetail(); }));
 }
 
 function visible() {
@@ -144,17 +121,18 @@ function renderList() {
   $("#f-clear").hidden = !(filterState || filterDate || filterOpt);
   $("#empty").hidden = APPS.length !== 0;
   $("#list").innerHTML = rows.map(card).join("");
-  $$("#list .card").forEach((c) => (c.onclick = () => openModal(c.dataset.id)));
+  $$("#list .card").forEach((c) => (c.onclick = () => openDetail(c.dataset.id)));
 }
+
+function ini(a) { return esc((a.company || "?").trim().charAt(0).toUpperCase() || "?"); }
 
 function card(a) {
   const due = a.nextDue ? `<span class="due">⏰ ${esc(a.nextAction || "next")} · ${a.nextDue}</span>` : "";
   const spons = a.sponsors ? `<span class="tag sp">sponsors</span>` : "";
   const st = a.state ? `<span class="tag st">${esc(a.state)}</span>` : "";
   const tags = (a.tags || "").split(",").map((t) => t.trim()).filter(Boolean).slice(0, 3).map((t) => `<span class="tag">${esc(t)}</span>`).join("");
-  const ini = esc((a.company || "?").trim().charAt(0).toUpperCase() || "?");
   return `<article class="card" data-id="${a.appId}">
-    <div class="card-h"><span class="card-ico">${ini}</span><b>${esc(a.company || "—")}</b><span class="pill ${a.status}">${a.status}</span></div>
+    <div class="card-h"><span class="card-ico">${ini(a)}</span><b>${esc(a.company || "—")}</b><span class="pill ${a.status}">${a.status}</span></div>
     <div class="role">${esc(a.title || "")}</div>
     <div class="meta">${esc(a.dateApplied || "")}${a.location ? " · " + esc(a.location) : ""}${a.workMode ? " · " + esc(a.workMode) : ""}</div>
     <div class="tags">${st}${spons}${tags}</div>${due}</article>`;
@@ -167,12 +145,84 @@ function renderActivity() {
   const max = Math.max(1, ...Object.values(byDate));
   $("#activity").innerHTML = `<div class="act-head">📅 Applications by date <span class="filenote">click a date to filter</span></div>` +
     (dates.length ? dates.map((d) =>
-      `<div class="act-row ${filterDate === d ? "on" : ""}" data-d="${d}">
-        <span class="act-date">${esc(d)}</span>
-        <span class="act-bar"><i style="width:${(byDate[d] / max) * 100}%"></i></span>
-        <b class="act-n">${byDate[d]}</b></div>`).join("")
+      `<div class="act-row ${filterDate === d ? "on" : ""}" data-d="${d}"><span class="act-date">${esc(d)}</span><span class="act-bar"><i style="width:${(byDate[d] / max) * 100}%"></i></span><b class="act-n">${byDate[d]}</b></div>`).join("")
       : `<p class="filenote">No dates yet.</p>`);
   $$("#activity .act-row").forEach((r) => (r.onclick = () => { filterDate = filterDate === r.dataset.d ? "" : r.dataset.d; $("#f-date").value = filterDate; renderActivity(); renderList(); }));
+}
+
+// ---------- detail view (portfolio-style) ----------------------------------
+function openDetail(id) {
+  const a = APPS.find((x) => x.appId === id); if (!a) return;
+  currentDetail = id;
+  $("#list-view").hidden = true; $("#detail-view").hidden = false;
+  renderDetail(a); window.scrollTo(0, 0);
+}
+function closeDetail() { currentDetail = null; $("#detail-view").hidden = true; $("#list-view").hidden = false; }
+
+function kvRow(label, val) { return val ? `<div><span>${label}</span><b>${esc(val)}</b></div>` : ""; }
+
+function renderDetail(a) {
+  const now = Math.floor(Date.now() / 1000);
+  const days = a.dateApplied ? Math.max(0, Math.round((Date.now() - new Date(a.dateApplied).getTime()) / 86400000)) : null;
+  const tagList = (a.tags || "").split(",").map((t) => t.trim()).filter(Boolean);
+  const skillsBody = [
+    a.requiredSkills ? `<p><strong>Required:</strong> ${esc(a.requiredSkills)}</p>` : "",
+    a.niceToHave ? `<p><strong>Nice to have:</strong> ${esc(a.niceToHave)}</p>` : "",
+    tagList.length ? `<div class="tags">${tagList.map((t) => `<span class="tag">${esc(t)}</span>`).join("")}</div>` : "",
+  ].join("");
+  const docs = (a.documents || []);
+  const timeline = (a.timeline || []).slice().reverse();
+
+  $("#detail-view").innerHTML = `
+    <button class="backlink" id="d-back"><svg class="i"><use href="#ic-back"/></svg> All applications</button>
+    <div class="detail-head">
+      <span class="card-ico big">${ini(a)}</span>
+      <div><div class="lede">${esc(a.title || "")}</div><h1>${esc(a.company || "—")}</h1>
+        <span class="pill ${a.status}">${esc(a.status)}</span>${a.state ? ` <span class="tag st">${esc(a.state)}</span>` : ""}${a.sponsors ? ` <span class="tag sp">sponsors OPT</span>` : ""}</div>
+      <div class="detail-actions">
+        ${a.url ? `<a class="btn" href="${esc(a.url)}" target="_blank" rel="noopener">↗ Posting</a>` : ""}
+        <button class="btn" id="d-edit">✎ Edit</button>
+        <button class="btn danger" id="d-del">🗑 Delete</button>
+      </div>
+    </div>
+    <div class="detail-grid">
+      <div class="detail-main">
+        ${skillsBody ? `<div class="container"><div class="container-head">🧩 Skills &amp; tags</div><div class="container-body">${skillsBody}</div></div>` : ""}
+        ${a.jd ? `<div class="container"><div class="container-head">📄 Job description</div><div class="container-body"><pre class="jd-text">${esc(a.jd)}</pre></div></div>` : ""}
+        <div class="container"><div class="container-head">📎 Documents</div><div class="container-body">
+          ${docs.length ? `<div class="doclist">${docs.map((d) => `<a href="#" data-key="${esc(d.docKey)}">📄 ${esc(d.filename || "document")}</a>`).join("")}</div>` : `<p class="muted">No résumé attached. Use Edit to add the one you applied with.</p>`}
+        </div></div>
+        ${timeline.length ? `<div class="container"><div class="container-head">🕘 Activity</div><div class="container-body"><ul class="timeline">${timeline.map((t) => `<li>${esc(t.event || "")}</li>`).join("")}</ul></div></div>` : ""}
+      </div>
+      <div class="detail-side">
+        <div class="container"><div class="container-head">Overview</div><div class="container-body kv">
+          ${kvRow("Status", a.status)}
+          ${kvRow("Applied", a.dateApplied + (days != null ? ` (${days}d ago)` : ""))}
+          ${kvRow("Location", a.location)}
+          ${kvRow("State", a.state)}
+          ${kvRow("Work mode", a.workMode)}
+          ${kvRow("Seniority", a.seniority)}
+          ${kvRow("Salary", a.salary)}
+          ${kvRow("Source", a.source)}
+          ${kvRow("Sponsors OPT", a.sponsors ? "yes" : "")}
+          ${kvRow("Next action", a.nextAction)}
+          ${kvRow("Due", a.nextDue)}
+        </div></div>
+        ${(a.contactName || a.contactEmail) ? `<div class="container"><div class="container-head">Contact</div><div class="container-body kv">
+          ${kvRow("Recruiter", a.contactName)}
+          ${a.contactEmail ? `<div><span>Email</span><b><a href="mailto:${esc(a.contactEmail)}">${esc(a.contactEmail)}</a></b></div>` : ""}
+        </div></div>` : ""}
+      </div>
+    </div>`;
+
+  $("#d-back").onclick = closeDetail;
+  $("#d-edit").onclick = () => openModal(a.appId);
+  $("#d-del").onclick = () => delApp(a.appId);
+  $$("#detail-view .doclist a").forEach((el) => (el.onclick = async (e) => {
+    e.preventDefault();
+    const j = await api("GET", "/download?key=" + encodeURIComponent(el.dataset.key));
+    window.open(j.downloadUrl, "_blank");
+  }));
 }
 
 // ---------- modal / editor -------------------------------------------------
@@ -182,10 +232,8 @@ function openModal(id) {
   const f = $("#app-form");
   f.reset();
   $("#sheet-title").textContent = id ? "Edit application" : "Log application";
-  $("#delete").hidden = !id;
-  ["form-err"].forEach((x) => ($("#" + x).textContent = ""));
-  $("#resume-status").textContent = ""; $("#resume").value = "";
-  $("#autofill-status").textContent = "";
+  $("#form-err").textContent = "";
+  $("#resume-status").textContent = ""; $("#resume").value = ""; $("#autofill-status").textContent = "";
   $("#jd").value = a.jd || "";
   FORM_FIELDS.forEach((k) => { if (f[k] != null) f[k].value = a[k] || ""; });
   if (!f.status.value) f.status.value = "applied";
@@ -216,9 +264,8 @@ async function autofill() {
     const f = $("#app-form");
     Object.entries(fields || {}).forEach(([k, v]) => { if (f[k] != null && v) f[k].value = v; });
     $("#autofill-status").textContent = "Filled ✓ — review and save.";
-  } catch (e) {
-    $("#autofill-status").textContent = e.message;
-  } finally { $("#autofill").disabled = false; }
+  } catch (e) { $("#autofill-status").textContent = e.message; }
+  finally { $("#autofill").disabled = false; }
 }
 
 async function saveApp(e) {
@@ -239,7 +286,9 @@ async function saveApp(e) {
       const doc = await uploadDoc(saved.appId, file);
       saved = await api("PUT", "/applications/" + saved.appId, { documents: (saved.documents || []).concat([doc]) });
     }
+    const detailId = editing;
     closeModal(); await load();
+    if (detailId && currentDetail === detailId) { const a = APPS.find((x) => x.appId === detailId); a ? renderDetail(a) : closeDetail(); }
   } catch (err) { $("#form-err").textContent = err.message; }
   finally { $("#save").disabled = false; }
 }
@@ -251,9 +300,10 @@ async function uploadDoc(appId, file) {
   return { docKey, filename: file.name, kind: "resume", at: Math.floor(Date.now() / 1000) };
 }
 
-async function delApp() {
-  if (!editing || !confirm("Delete this application?")) return;
-  await api("DELETE", "/applications/" + editing); closeModal(); await load();
+async function delApp(id) {
+  if (!confirm("Delete this application? This can't be undone.")) return;
+  await api("DELETE", "/applications/" + id);
+  closeDetail(); await load();
 }
 
 function exportCsv() {
@@ -266,66 +316,25 @@ function exportCsv() {
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
-// ---------- settings: password + MFA ---------------------------------------
+// ---------- settings: change password --------------------------------------
 async function changePassword() {
-  const oldp = $("#pw-old").value, newp = $("#pw-new").value;
   const msg = $("#pw-msg"); msg.className = "err"; msg.textContent = "";
   try {
-    await cognito("ChangePassword", { AccessToken: localStorage.getItem(LS.access), PreviousPassword: oldp, ProposedPassword: newp });
+    await cognito("ChangePassword", { AccessToken: localStorage.getItem(LS.access), PreviousPassword: $("#pw-old").value, ProposedPassword: $("#pw-new").value });
     msg.className = "ok"; msg.textContent = "Password updated ✓"; $("#pw-old").value = ""; $("#pw-new").value = "";
   } catch (e) { msg.textContent = e.message; }
 }
 
-async function refreshMfaState() {
-  const u = await cognito("GetUser", { AccessToken: localStorage.getItem(LS.access) });
-  const on = (u.UserMFASettingList || []).includes("SOFTWARE_TOKEN_MFA");
-  $("#mfa-state").textContent = on ? "MFA is ON — an authenticator code is required at sign-in." : "MFA is off. Add an authenticator app for extra security.";
-  $("#mfa-off").hidden = on; $("#mfa-on").hidden = !on; $("#mfa-setup").hidden = true;
-}
-
-async function mfaEnable() {
-  const j = await cognito("AssociateSoftwareToken", { AccessToken: localStorage.getItem(LS.access) });
-  const secret = j.SecretCode;
-  $("#mfa-secret").textContent = secret;
-  const email = localStorage.getItem(LS.email);
-  $("#mfa-uri").href = `otpauth://totp/JobHuntCommandCenter:${encodeURIComponent(email)}?secret=${secret}&issuer=JobHuntCommandCenter`;
-  $("#mfa-off").hidden = true; $("#mfa-setup").hidden = false; $("#mfa-msg").textContent = "";
-}
-
-async function mfaVerify() {
-  const msg = $("#mfa-msg"); msg.className = "err"; msg.textContent = "";
-  try {
-    const v = await cognito("VerifySoftwareToken", { AccessToken: localStorage.getItem(LS.access), UserCode: $("#mfa-verify-code").value.trim() });
-    if (v.Status !== "SUCCESS") throw new Error("code didn't verify");
-    await cognito("SetUserMFAPreference", { AccessToken: localStorage.getItem(LS.access), SoftwareTokenMfaSettings: { Enabled: true, PreferredMfa: true } });
-    msg.className = "ok"; msg.textContent = "MFA enabled ✓";
-    await refreshMfaState();
-  } catch (e) { msg.textContent = e.message; }
-}
-
-async function mfaDisable() {
-  const msg = $("#mfa-msg"); msg.className = "err"; msg.textContent = "";
-  try {
-    await cognito("SetUserMFAPreference", { AccessToken: localStorage.getItem(LS.access), SoftwareTokenMfaSettings: { Enabled: false, PreferredMfa: false } });
-    await refreshMfaState();
-  } catch (e) { msg.textContent = e.message; }
-}
-
-function openSettings() { $("#settings").hidden = false; $("#pw-msg").textContent = ""; $("#mfa-msg").textContent = ""; refreshMfaState().catch((e) => ($("#mfa-state").textContent = e.message)); }
-
 // ---------- wiring ---------------------------------------------------------
-function fillStateSelects() {
-  const opts = US_STATES.map((s) => `<option>${s}</option>`).join("");
-  $("#state-select").innerHTML = `<option value="">—</option>` + opts;
-}
+function fillStateSelects() { $("#state-select").innerHTML = `<option value="">—</option>` + US_STATES.map((s) => `<option>${s}</option>`).join(""); }
 
 function show(authed) {
   $("#login").hidden = authed; $("#app").hidden = !authed;
   if (authed) {
     const email = localStorage.getItem(LS.email) || "";
-    const ini = (email[0] || "A").toUpperCase();
+    const c = (email[0] || "A").toUpperCase();
     $("#who").textContent = email; $("#who2").textContent = email;
-    $("#avatar-i").textContent = ini; $("#avatar-i2").textContent = ini;
+    $("#avatar-i").textContent = c; $("#avatar-i2").textContent = c;
     load().catch((e) => console.error(e));
   }
 }
@@ -336,31 +345,20 @@ $("#login-form").onsubmit = async (e) => {
   catch (err) { $("#login-err").textContent = err.message; }
   finally { $("#login-btn").disabled = false; }
 };
-$("#mfa-btn").onclick = async () => {
-  $("#login-err").textContent = "";
-  try { await mfaLogin($("#mfa-code").value.trim()); }
-  catch (err) { $("#login-err").textContent = err.message; }
-};
 $("#logout").onclick = logout;
-$("#settings-btn").onclick = openSettings;
-// account popover
+$("#settings-btn").onclick = () => { $("#settings").hidden = false; $("#pw-msg").textContent = ""; };
+$("#settings-close").onclick = () => ($("#settings").hidden = true);
+$("#pw-save").onclick = changePassword;
 $("#acct-btn").onclick = (e) => { e.stopPropagation(); $("#acct-pop").hidden = !$("#acct-pop").hidden; };
 document.addEventListener("click", (e) => { const p = $("#acct-pop"); if (p && !p.hidden && !e.target.closest(".pop-wrap")) p.hidden = true; });
-// mobile drawer
 const closeDrawer = () => document.body.classList.remove("nav-open");
 $("#hamburger").onclick = () => document.body.classList.toggle("nav-open");
 $("#nav-backdrop").onclick = closeDrawer;
-$("#home-logo").onclick = () => { filterStatus = "all"; filterState = ""; filterDate = ""; query = ""; $("#search").value = ""; $("#f-state").value = ""; $("#f-date").value = ""; render(); closeDrawer(); window.scrollTo(0, 0); };
+$("#home-logo").onclick = () => { filterStatus = "all"; filterState = ""; filterDate = ""; filterOpt = false; query = ""; $("#search").value = ""; $("#f-state").value = ""; $("#f-date").value = ""; $("#f-opt").checked = false; closeDetail(); render(); closeDrawer(); window.scrollTo(0, 0); };
 $("#sidebar").addEventListener("click", (e) => { if (e.target.closest(".chip")) closeDrawer(); });
-$("#settings-close").onclick = () => ($("#settings").hidden = true);
-$("#pw-save").onclick = changePassword;
-$("#mfa-enable").onclick = () => mfaEnable().catch((e) => ($("#mfa-msg").textContent = e.message));
-$("#mfa-verify").onclick = mfaVerify;
-$("#mfa-disable").onclick = mfaDisable;
 $("#add").onclick = () => openModal(null);
 $("#cancel").onclick = closeModal;
 $("#sheet-close").onclick = closeModal;
-$("#delete").onclick = delApp;
 $("#autofill").onclick = autofill;
 $("#app-form").onsubmit = saveApp;
 $("#export").onclick = exportCsv;
@@ -369,8 +367,11 @@ $("#f-state").onchange = (e) => { filterState = e.target.value; renderList(); };
 $("#f-date").onchange = (e) => { filterDate = e.target.value; renderActivity(); renderList(); };
 $("#f-opt").onchange = (e) => { filterOpt = e.target.checked; renderList(); };
 $("#f-clear").onclick = () => { filterState = ""; filterDate = ""; filterOpt = false; $("#f-state").value = ""; $("#f-date").value = ""; $("#f-opt").checked = false; renderActivity(); renderList(); renderStateFilter(); };
-$("#search").oninput = (e) => { query = e.target.value; renderList(); };
-document.onkeydown = (e) => { if (e.key === "/" && !$("#app").hidden && !["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName)) { e.preventDefault(); $("#search").focus(); } };
+$("#search").oninput = (e) => { query = e.target.value; if (!$("#detail-view").hidden) closeDetail(); renderList(); };
+document.onkeydown = (e) => {
+  if (e.key === "Escape" && !$("#detail-view").hidden) closeDetail();
+  if (e.key === "/" && !$("#app").hidden && !["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName)) { e.preventDefault(); $("#search").focus(); }
+};
 
 // boot
 fillStateSelects();

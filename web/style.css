@@ -166,6 +166,33 @@ main { flex: 1; min-width: 0; padding: 1.1rem 1.5rem 2rem; max-width: 1180px; }
 .ftr-left { display: flex; gap: 1.1rem; } .ftr-left a { color: #d5dbdb; } .ftr-left a:hover { color: #fff; }
 .ftr-right { color: #9aa4b0; } .ftr-muted { color: #6b7684; }
 
+/* portfolio "abr" logo */
+.awslogo { display: flex; align-items: center; padding: 0 .4rem; }
+.awslogo .awsmark { height: 27px; width: auto; display: block; }
+.awsmark-letters { fill: #fff; font-family: "Amazon Ember", Arial, sans-serif; } .awsmark-bar { fill: var(--orange); } .awsmark-caret { fill: var(--orange); opacity: .55; }
+.awslogo:hover { opacity: .85; } .awslogo:hover .awsmark-letters { fill: var(--orange); }
+.login-card .brand .awsmark.lg { height: 34px; }
+.login-card .awsmark.lg .awsmark-letters { fill: var(--nav); }
+
+/* container head/body (portfolio) */
+.container-head { font-weight: 700; padding: .85rem 1.1rem; border-bottom: 1px solid var(--border-soft); font-size: .92rem; display: flex; align-items: center; gap: .5rem; }
+.container-body { padding: 1.1rem; color: var(--text); font-size: .9rem; }
+.container-body p strong { color: var(--text); }
+
+/* detail view */
+.backlink { display: inline-flex; align-items: center; gap: .4rem; background: none; border: 0; cursor: pointer; color: var(--link); font: inherit; font-size: .88rem; font-weight: 600; margin-bottom: 1rem; padding: 0; }
+.backlink:hover { color: var(--link-hover); }
+.detail-head { display: flex; align-items: flex-start; gap: 1rem; margin-bottom: 1.2rem; flex-wrap: wrap; }
+.detail-head h1 { margin: .1rem 0 .4rem; }
+.detail-head .lede { color: var(--orange-2); font-weight: 700; font-size: .82rem; text-transform: uppercase; letter-spacing: .05em; }
+.card-ico.big { width: 52px; height: 52px; font-size: 1.4rem; border-radius: 12px; }
+.detail-actions { margin-left: auto; display: flex; gap: .5rem; flex-wrap: wrap; }
+.detail-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 1.1rem; align-items: start; }
+.detail-main .container, .detail-side .container { margin-bottom: 1.1rem; }
+.jd-text { white-space: pre-wrap; font: inherit; color: var(--text); max-height: 340px; overflow: auto; }
+.timeline { list-style: none; } .timeline li { padding: .3rem 0 .3rem 1rem; border-left: 2px solid var(--border-soft); color: var(--muted); }
+@media (max-width: 900px) { .detail-grid { grid-template-columns: 1fr; } }
+
 /* the [hidden] attribute must beat display rules */
 [hidden] { display: none !important; }
 
