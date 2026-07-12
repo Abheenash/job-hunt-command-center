@@ -39,6 +39,15 @@ JD_SYSTEM = (
     '"requiredSkills":str (comma-separated),"niceToHave":str (comma-separated)}'
 )
 
+MATCH_SYSTEM = (
+    "You are a technical recruiter comparing a candidate's résumé to a job "
+    "description. Judge fit honestly and strictly from the two texts. Reply with "
+    "ONLY a compact JSON object, no prose, no code fences: "
+    '{"matchPercent":int 0-100,"matched":[up to 8 requirements the résumé clearly '
+    'satisfies],"missing":[up to 8 important JD requirements absent or weak in the '
+    'résumé],"summary":"1-2 sentence honest assessment and the single biggest gap"}'
+)
+
 
 class NotFound(Exception):
     pass
@@ -88,6 +97,8 @@ def handler(event, _ctx):
                 return list_events(user, parts[1])
             elif len(parts) == 3 and parts[2] == "documents" and method == "POST":
                 return upload_url(user, parts[1], body)
+            elif len(parts) == 3 and parts[2] == "match" and method == "POST":
+                return match_resume(user, parts[1])
         return _r(404, {"error": "not found"})
     except NotFound:
         return _r(404, {"error": "application not found"})
@@ -228,6 +239,56 @@ def _first_json(text):
     start = text.find("{")
     end = text.rfind("}")
     return text[start:end + 1] if start != -1 and end != -1 else "{}"
+
+
+def match_resume(user, app_id):
+    """Compare the application's JD against the uploaded résumé and score fit."""
+    item = _owned(user, app_id)
+    jd = item.get("jd", "")
+    if len(jd) < 20:
+        return _r(400, {"error": "add the job description to this application first"})
+    docs = item.get("documents", [])
+    resume = next((d for d in docs if d.get("kind") == "resume"), docs[0] if docs else None)
+    if not resume:
+        return _r(400, {"error": "attach the résumé you applied with first"})
+    text = _pdf_text(resume["docKey"])
+    if len(text) < 30:
+        return _r(422, {"error": "couldn't read text from that PDF (is it a scan/image?)"})
+
+    payload = {
+        "anthropic_version": "bedrock-2023-05-31", "max_tokens": 700, "system": MATCH_SYSTEM,
+        "messages": [{"role": "user", "content": [{"type": "text",
+            "text": f"JOB DESCRIPTION:\n{jd[:8000]}\n\nRESUME:\n{text[:8000]}"}]}],
+    }
+    try:
+        resp = bedrock.invoke_model(modelId=BEDROCK_MODEL, body=json.dumps(payload))
+        out = json.loads(resp["body"].read())["content"][0]["text"]
+        result = json.loads(_first_json(out))
+    except Exception as e:  # noqa: BLE001
+        print(f"match failed: {type(e).__name__}: {e}")
+        return _r(502, {"error": "match check failed, try again"})
+
+    # persist a lightweight summary on the record so cards/detail can show it
+    item["matchPercent"] = int(result.get("matchPercent") or 0)
+    item["matchSummary"] = str(result.get("summary") or "")[:400]
+    item["matchMatched"] = result.get("matched") or []
+    item["matchMissing"] = result.get("missing") or []
+    item["matchedAt"] = int(time.time())
+    item["updatedAt"] = int(time.time())
+    _put(app_id, user, item)
+    return _r(200, {"match": result})
+
+
+def _pdf_text(key):
+    try:
+        import io
+        import pypdf
+        obj = s3.get_object(Bucket=BUCKET, Key=key)
+        reader = pypdf.PdfReader(io.BytesIO(obj["Body"].read()))
+        return "\n".join((p.extract_text() or "") for p in reader.pages)
+    except Exception as e:  # noqa: BLE001
+        print(f"pdf_text failed: {type(e).__name__}: {e}")
+        return ""
 
 
 def _parse_body(event):

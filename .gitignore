@@ -32,3 +32,8 @@ config.local.*
 .DS_Store
 .idea/
 .vscode/
+
+# vendored Lambda deps (installed via requirements.txt before apply)
+src/api/pypdf/
+src/api/pypdf-*/
+src/api/*.dist-info/

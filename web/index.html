@@ -90,6 +90,51 @@
 
         <!-- DETAIL VIEW (rendered by JS) -->
         <div id="detail-view" hidden></div>
+
+        <!-- EDIT VIEW (inline, page-style) -->
+        <div id="edit-view" hidden>
+          <button class="backlink" id="e-back"><svg class="i"><use href="#ic-back"/></svg> <span id="e-back-label">Back</span></button>
+          <div class="page-head"><h1 id="edit-title">Log application</h1></div>
+
+          <div class="jd-box">
+            <label>✨ Paste the job description — AI fills the fields for you</label>
+            <textarea id="jd" rows="4" placeholder="Paste the full JD here, then hit Autofill. (The text is saved for interview prep + the match check.)"></textarea>
+            <button type="button" id="autofill" class="btn primary">✨ Autofill from JD</button>
+            <span id="autofill-status" class="filenote"></span>
+          </div>
+
+          <form id="app-form" class="editcard grid2">
+            <label>Company <span class="req">*</span><input name="company" required /></label>
+            <label>Title <span class="req">*</span><input name="title" required /></label>
+            <label>Date applied <span class="req">*</span><input name="dateApplied" type="date" required /></label>
+            <label>Status <span class="req">*</span>
+              <select name="status"><option>applied</option><option>screen</option><option>interview</option><option>offer</option><option>rejected</option><option>ghosted</option></select>
+            </label>
+            <label>Location<input name="location" placeholder="City / Remote" /></label>
+            <label>State<select name="state" id="state-select"><option value="">—</option></select></label>
+            <label>Work mode<select name="workMode"><option value="">—</option><option>Remote</option><option>Hybrid</option><option>On-site</option></select></label>
+            <label>Seniority<input name="seniority" placeholder="Junior / Mid / Senior" /></label>
+            <label>Salary range<input name="salary" placeholder="$120k–$150k" /></label>
+            <label>Source<select name="source"><option value="">—</option><option>LinkedIn</option><option>Referral</option><option>Company site</option><option>Indeed</option><option>Other</option></select></label>
+            <label>Posting URL<input name="url" type="url" placeholder="https://…" /></label>
+            <label class="check2"><input type="checkbox" name="sponsors" /> Sponsors / accepts OPT</label>
+            <label>Recruiter name<input name="contactName" /></label>
+            <label>Recruiter email<input name="contactEmail" type="email" /></label>
+            <label>Next action<input name="nextAction" placeholder="Follow up, prep, …" /></label>
+            <label>Next action due<input name="nextDue" type="date" /></label>
+            <label>Tags (comma-sep)<input name="tags" placeholder="aws, remote, devops" /></label>
+            <label class="full">Required skills<input name="requiredSkills" placeholder="auto-filled from the JD" /></label>
+            <label class="full">Nice to have<input name="niceToHave" placeholder="auto-filled from the JD" /></label>
+            <label class="full">Résumé you applied with (PDF)<input type="file" id="resume" accept="application/pdf" /><span id="resume-status" class="filenote"></span></label>
+            <div class="full docs" id="docs"></div>
+            <div class="full sheet-actions">
+              <span style="flex:1"></span>
+              <button type="button" id="cancel" class="btn">Cancel</button>
+              <button type="submit" class="btn primary" id="save">Save application</button>
+            </div>
+            <p class="err full" id="form-err"></p>
+          </form>
+        </div>
       </main>
     </div>
 
@@ -100,52 +145,6 @@
       </div>
       <div class="ftr-right">Built &amp; run on AWS · Cognito · Lambda · DynamoDB · S3 · Bedrock · <span class="ftr-muted">a personal tool by Rajolu Abheenash</span></div>
     </footer>
-  </div>
-
-  <!-- APPLICATION EDITOR (modal) -->
-  <div id="modal" class="modal" hidden>
-    <div class="sheet">
-      <div class="sheet-head"><h2 id="sheet-title">Log application</h2><button id="sheet-close" class="x">✕</button></div>
-
-      <div class="jd-box">
-        <label>✨ Paste the job description — AI fills the fields for you</label>
-        <textarea id="jd" rows="4" placeholder="Paste the full JD here, then hit Autofill. (The text is saved for interview prep too.)"></textarea>
-        <button type="button" id="autofill" class="btn primary">✨ Autofill from JD</button>
-        <span id="autofill-status" class="filenote"></span>
-      </div>
-
-      <form id="app-form" class="grid2">
-        <label>Company <span class="req">*</span><input name="company" required /></label>
-        <label>Title <span class="req">*</span><input name="title" required /></label>
-        <label>Date applied <span class="req">*</span><input name="dateApplied" type="date" required /></label>
-        <label>Status <span class="req">*</span>
-          <select name="status"><option>applied</option><option>screen</option><option>interview</option><option>offer</option><option>rejected</option><option>ghosted</option></select>
-        </label>
-        <label>Location<input name="location" placeholder="City / Remote" /></label>
-        <label>State<select name="state" id="state-select"><option value="">—</option></select></label>
-        <label>Work mode<select name="workMode"><option value="">—</option><option>Remote</option><option>Hybrid</option><option>On-site</option></select></label>
-        <label>Seniority<input name="seniority" placeholder="Junior / Mid / Senior" /></label>
-        <label>Salary range<input name="salary" placeholder="$120k–$150k" /></label>
-        <label>Source<select name="source"><option value="">—</option><option>LinkedIn</option><option>Referral</option><option>Company site</option><option>Indeed</option><option>Other</option></select></label>
-        <label>Posting URL<input name="url" type="url" placeholder="https://…" /></label>
-        <label class="check2"><input type="checkbox" name="sponsors" /> Sponsors / accepts OPT</label>
-        <label>Recruiter name<input name="contactName" /></label>
-        <label>Recruiter email<input name="contactEmail" type="email" /></label>
-        <label>Next action<input name="nextAction" placeholder="Follow up, prep, …" /></label>
-        <label>Next action due<input name="nextDue" type="date" /></label>
-        <label>Tags (comma-sep)<input name="tags" placeholder="aws, remote, devops" /></label>
-        <label class="full">Required skills<input name="requiredSkills" placeholder="auto-filled from the JD" /></label>
-        <label class="full">Nice to have<input name="niceToHave" placeholder="auto-filled from the JD" /></label>
-        <label class="full">Résumé you applied with (PDF)<input type="file" id="resume" accept="application/pdf" /><span id="resume-status" class="filenote"></span></label>
-        <div class="full docs" id="docs"></div>
-        <div class="full sheet-actions">
-          <span style="flex:1"></span>
-          <button type="button" id="cancel" class="btn">Cancel</button>
-          <button type="submit" class="btn primary" id="save">Save</button>
-        </div>
-        <p class="err full" id="form-err"></p>
-      </form>
-    </div>
   </div>
 
   <!-- SETTINGS (modal) -->

@@ -100,7 +100,7 @@ function renderFilters() {
   STATUSES.forEach((s) => (counts[s] = APPS.filter((a) => a.status === s).length));
   $("#filters").innerHTML = ["all", ...STATUSES].map((k) =>
     `<button class="chip ${filterStatus === k ? "on" : ""}" data-f="${k}">${k}<span>${counts[k] || 0}</span></button>`).join("");
-  $$("#filters .chip").forEach((b) => (b.onclick = () => { filterStatus = b.dataset.f; renderFilters(); renderList(); if (!$("#detail-view").hidden) closeDetail(); }));
+  $$("#filters .chip").forEach((b) => (b.onclick = () => { filterStatus = b.dataset.f; renderFilters(); renderList(); currentDetail = null; showOnly("#list-view"); }));
 }
 
 function visible() {
@@ -130,12 +130,13 @@ function card(a) {
   const due = a.nextDue ? `<span class="due">⏰ ${esc(a.nextAction || "next")} · ${a.nextDue}</span>` : "";
   const spons = a.sponsors ? `<span class="tag sp">sponsors</span>` : "";
   const st = a.state ? `<span class="tag st">${esc(a.state)}</span>` : "";
+  const mt = a.matchPercent != null ? `<span class="tag mt ${a.matchPercent >= 75 ? "good" : a.matchPercent >= 50 ? "ok" : "low"}">${a.matchPercent}% match</span>` : "";
   const tags = (a.tags || "").split(",").map((t) => t.trim()).filter(Boolean).slice(0, 3).map((t) => `<span class="tag">${esc(t)}</span>`).join("");
   return `<article class="card" data-id="${a.appId}">
     <div class="card-h"><span class="card-ico">${ini(a)}</span><b>${esc(a.company || "—")}</b><span class="pill ${a.status}">${a.status}</span></div>
     <div class="role">${esc(a.title || "")}</div>
     <div class="meta">${esc(a.dateApplied || "")}${a.location ? " · " + esc(a.location) : ""}${a.workMode ? " · " + esc(a.workMode) : ""}</div>
-    <div class="tags">${st}${spons}${tags}</div>${due}</article>`;
+    <div class="tags">${mt}${st}${spons}${tags}</div>${due}</article>`;
 }
 
 function renderActivity() {
@@ -151,13 +152,9 @@ function renderActivity() {
 }
 
 // ---------- detail view (portfolio-style) ----------------------------------
-function openDetail(id) {
-  const a = APPS.find((x) => x.appId === id); if (!a) return;
-  currentDetail = id;
-  $("#list-view").hidden = true; $("#detail-view").hidden = false;
-  renderDetail(a); window.scrollTo(0, 0);
-}
-function closeDetail() { currentDetail = null; $("#detail-view").hidden = true; $("#list-view").hidden = false; }
+function showOnly(sel) { ["#list-view", "#detail-view", "#edit-view"].forEach((s) => ($(s).hidden = s !== sel)); }
+function openDetail(id) { const a = APPS.find((x) => x.appId === id); if (!a) return; currentDetail = id; renderDetail(a); showOnly("#detail-view"); window.scrollTo(0, 0); }
+function closeDetail() { currentDetail = null; showOnly("#list-view"); }
 
 function kvRow(label, val) { return val ? `<div><span>${label}</span><b>${esc(val)}</b></div>` : ""; }
 
@@ -187,6 +184,7 @@ function renderDetail(a) {
     </div>
     <div class="detail-grid">
       <div class="detail-main">
+        <div class="container"><div class="container-head">🎯 JD ↔ résumé match</div><div class="container-body" id="d-match">${matchInner(a)}</div></div>
         ${skillsBody ? `<div class="container"><div class="container-head">🧩 Skills &amp; tags</div><div class="container-body">${skillsBody}</div></div>` : ""}
         ${a.jd ? `<div class="container"><div class="container-head">📄 Job description</div><div class="container-body"><pre class="jd-text">${esc(a.jd)}</pre></div></div>` : ""}
         <div class="container"><div class="container-head">📎 Documents</div><div class="container-body">
@@ -216,8 +214,9 @@ function renderDetail(a) {
     </div>`;
 
   $("#d-back").onclick = closeDetail;
-  $("#d-edit").onclick = () => openModal(a.appId);
+  $("#d-edit").onclick = () => openEdit(a.appId);
   $("#d-del").onclick = () => delApp(a.appId);
+  const mb = $("#d-match-btn"); if (mb) mb.onclick = () => runMatch(a.appId);
   $$("#detail-view .doclist a").forEach((el) => (el.onclick = async (e) => {
     e.preventDefault();
     const j = await api("GET", "/download?key=" + encodeURIComponent(el.dataset.key));
@@ -225,24 +224,57 @@ function renderDetail(a) {
   }));
 }
 
-// ---------- modal / editor -------------------------------------------------
-function openModal(id) {
+// ---------- JD ↔ résumé match ----------------------------------------------
+function matchInner(a) {
+  const hasResume = (a.documents || []).length > 0;
+  if (a.matchPercent != null && a.matchedAt) return matchResult(a);
+  if (!a.jd) return `<p class="muted">Add the job description (via <b>Edit</b>) to run a match check.</p>`;
+  if (!hasResume) return `<p class="muted">Attach the résumé you applied with (via <b>Edit</b>) to run a match check.</p>`;
+  return `<p class="muted">Compare this JD against your uploaded résumé — AI scores the fit and shows your gaps.</p>
+    <button class="btn primary" id="d-match-btn">🎯 Run match check</button> <span id="d-match-msg" class="filenote"></span>`;
+}
+function matchResult(a) {
+  const p = a.matchPercent || 0;
+  const cls = p >= 75 ? "good" : p >= 50 ? "ok" : "low";
+  const list = (arr, sym) => (arr || []).map((m) => `<li>${sym} ${esc(m)}</li>`).join("");
+  return `<div class="match ${cls}">
+      <div class="match-score"><b>${p}%</b><span>fit</span></div>
+      <div class="match-main"><div class="match-bar"><i style="width:${p}%"></i></div><p>${esc(a.matchSummary || "")}</p></div>
+    </div>
+    ${(a.matchMatched || []).length || (a.matchMissing || []).length ? `<div class="match-lists">
+      <div class="match-good"><h4>✓ Strengths</h4><ul>${list(a.matchMatched, "")}</ul></div>
+      <div class="match-gap"><h4>△ Gaps to address</h4><ul>${list(a.matchMissing, "")}</ul></div>
+    </div>` : ""}
+    <button class="btn sm" id="d-match-btn">↻ Re-run</button> <span id="d-match-msg" class="filenote"></span>`;
+}
+async function runMatch(id) {
+  const btn = $("#d-match-btn"), msg = $("#d-match-msg");
+  if (btn) { btn.disabled = true; btn.textContent = "Analyzing résumé vs JD…"; }
+  try {
+    await api("POST", `/applications/${id}/match`, {});
+    await load();
+    const a = APPS.find((x) => x.appId === id); if (a) renderDetail(a);
+  } catch (e) { if (msg) msg.textContent = e.message; if (btn) { btn.disabled = false; btn.textContent = "Run match check"; } }
+}
+
+// ---------- edit view (inline, page-style) ---------------------------------
+function openEdit(id) {
   editing = id || null;
   const a = id ? APPS.find((x) => x.appId === id) : {};
   const f = $("#app-form");
   f.reset();
-  $("#sheet-title").textContent = id ? "Edit application" : "Log application";
-  $("#form-err").textContent = "";
-  $("#resume-status").textContent = ""; $("#resume").value = ""; $("#autofill-status").textContent = "";
+  $("#edit-title").textContent = id ? "Edit application" : "Log application";
+  $("#e-back-label").textContent = id ? "Back to application" : "Back to list";
+  $("#form-err").textContent = ""; $("#resume-status").textContent = ""; $("#resume").value = ""; $("#autofill-status").textContent = "";
   $("#jd").value = a.jd || "";
   FORM_FIELDS.forEach((k) => { if (f[k] != null) f[k].value = a[k] || ""; });
   if (!f.status.value) f.status.value = "applied";
   if (!f.dateApplied.value) f.dateApplied.value = today();
   f.sponsors.checked = !!a.sponsors;
   renderDocs(a.documents || []);
-  $("#modal").hidden = false;
+  showOnly("#edit-view"); window.scrollTo(0, 0);
 }
-function closeModal() { $("#modal").hidden = true; editing = null; }
+function cancelEdit() { const id = editing; editing = null; if (id) openDetail(id); else showOnly("#list-view"); }
 const today = () => new Date().toISOString().slice(0, 10);
 
 function renderDocs(docs) {
@@ -286,9 +318,9 @@ async function saveApp(e) {
       const doc = await uploadDoc(saved.appId, file);
       saved = await api("PUT", "/applications/" + saved.appId, { documents: (saved.documents || []).concat([doc]) });
     }
-    const detailId = editing;
-    closeModal(); await load();
-    if (detailId && currentDetail === detailId) { const a = APPS.find((x) => x.appId === detailId); a ? renderDetail(a) : closeDetail(); }
+    const savedId = saved.appId;
+    await load();
+    editing = null; openDetail(savedId);
   } catch (err) { $("#form-err").textContent = err.message; }
   finally { $("#save").disabled = false; }
 }
@@ -356,9 +388,9 @@ $("#hamburger").onclick = () => document.body.classList.toggle("nav-open");
 $("#nav-backdrop").onclick = closeDrawer;
 $("#home-logo").onclick = () => { filterStatus = "all"; filterState = ""; filterDate = ""; filterOpt = false; query = ""; $("#search").value = ""; $("#f-state").value = ""; $("#f-date").value = ""; $("#f-opt").checked = false; closeDetail(); render(); closeDrawer(); window.scrollTo(0, 0); };
 $("#sidebar").addEventListener("click", (e) => { if (e.target.closest(".chip")) closeDrawer(); });
-$("#add").onclick = () => openModal(null);
-$("#cancel").onclick = closeModal;
-$("#sheet-close").onclick = closeModal;
+$("#add").onclick = () => openEdit(null);
+$("#cancel").onclick = cancelEdit;
+$("#e-back").onclick = cancelEdit;
 $("#autofill").onclick = autofill;
 $("#app-form").onsubmit = saveApp;
 $("#export").onclick = exportCsv;
@@ -367,9 +399,9 @@ $("#f-state").onchange = (e) => { filterState = e.target.value; renderList(); };
 $("#f-date").onchange = (e) => { filterDate = e.target.value; renderActivity(); renderList(); };
 $("#f-opt").onchange = (e) => { filterOpt = e.target.checked; renderList(); };
 $("#f-clear").onclick = () => { filterState = ""; filterDate = ""; filterOpt = false; $("#f-state").value = ""; $("#f-date").value = ""; $("#f-opt").checked = false; renderActivity(); renderList(); renderStateFilter(); };
-$("#search").oninput = (e) => { query = e.target.value; if (!$("#detail-view").hidden) closeDetail(); renderList(); };
+$("#search").oninput = (e) => { query = e.target.value; currentDetail = null; showOnly("#list-view"); renderList(); };
 document.onkeydown = (e) => {
-  if (e.key === "Escape" && !$("#detail-view").hidden) closeDetail();
+  if (e.key === "Escape") { if (!$("#edit-view").hidden) cancelEdit(); else if (!$("#detail-view").hidden) closeDetail(); }
   if (e.key === "/" && !$("#app").hidden && !["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName)) { e.preventDefault(); $("#search").focus(); }
 };
 

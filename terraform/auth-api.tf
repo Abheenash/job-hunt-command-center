@@ -107,7 +107,7 @@ resource "aws_lambda_function" "api" {
   handler          = "lambda_function.handler"
   filename         = data.archive_file.api.output_path
   source_code_hash = data.archive_file.api.output_base64sha256
-  timeout          = 15
+  timeout          = 30
   environment {
     variables = {
       APPS_TABLE   = aws_dynamodb_table.applications.name
