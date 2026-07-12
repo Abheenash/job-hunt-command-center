@@ -4,7 +4,7 @@ Log every application with the exact résumé you applied with, watch its status
 
 > **Personal-use tool.** The *code and infrastructure* are public (it's a portfolio project); the *data* — applications, documents, email classifications — is private, single-user, and gated behind Cognito. Nothing personal lives in this repo.
 
-**Status:** 🚧 Building in public — **Stage 0 (setup)**. The roadmap below is the plan; boxes get checked only as each stage actually lands.
+**Status:** ✅ **All stages built and deployed live.** The tracker (CRUD API, Cognito auth, document storage, dashboard) is running and verified end-to-end; the inbox-scan and nudge Lambdas are deployed on their schedules; the DevSecOps pipeline + classifier unit tests are in place. The one human-in-the-loop step is dropping a Google App Password into Secrets Manager to switch on live email scanning (see [below](#turning-on-live-email-scanning)).
 
 ## Why this project
 
@@ -90,12 +90,24 @@ Every application is a rich record, not just a status line:
 
 ## Roadmap
 
-- [ ] **Stage 0** — Repo, scoped OIDC deploy role, budget alarm (account already guarded); Google Cloud project + OAuth consent screen + Gmail API credentials **(app kept in Testing status)** — *or* the IMAP + App Password path (decided at Stage 3).
-- [ ] **Stage 1** — DynamoDB + Lambda CRUD API + minimal React dashboard with **search / filter**; **attach the résumé / JD you applied with** (snapshotted to a private, versioned S3 bucket via presigned URLs). *This is the usable MVP — start logging real applications here.*
-- [ ] **Stage 2** — Cognito auth so the dashboard is private (single user).
-- [ ] **Stage 3** — Inbox-scan Lambda: read-only, **incremental** sync, rule-based classification with **unit tests**, credential in Secrets Manager, events linked to applications. (Auth approach — Gmail-OAuth-Testing vs IMAP+App-Password — chosen here.)
-- [ ] **Stage 4** — Nudge Lambda (stale-application reminders via SES/SNS) + analytics view (funnel, response rate, applications over time) + **CSV export**.
-- [ ] **Stage 5** — Clean Terraform, **DevSecOps CI/CD pipeline (gitleaks · Checkov/tfsec · Trivy) + tests**, README + demo (dashboard + a live email-classification flow).
+- [x] **Stage 0** — Repo, scoped OIDC deploy role (`jobhunt-*`); account already budget-guarded. Inbox auth path decided at Stage 3 = **IMAP + App Password** (no 7-day-token problem).
+- [x] **Stage 1** — DynamoDB + Lambda CRUD API + vanilla-JS dashboard with **search / filter / stats / CSV export**; **attach the as-sent résumé** (snapshotted to a private, versioned S3 bucket via presigned URLs). Deployed + verified live.
+- [x] **Stage 2** — Cognito auth (USER_PASSWORD_AUTH) + an HTTP API **JWT authorizer** so the dashboard and every route are private. Verified (no-auth → 401).
+- [x] **Stage 3** — Inbox-scan Lambda: **IMAP read-only**, `SINCE`-windowed, rule-based classification with **9 passing unit tests**, credential in Secrets Manager, events linked to applications by contact-email / company. No-ops safely until the credential is set.
+- [x] **Stage 4** — Nudge Lambda (stale-application reminders via **SES**, daily EventBridge schedule) + analytics (funnel, response rate) + **CSV export** in the dashboard.
+- [x] **Stage 5** — Clean Terraform (`validate` clean), **DevSecOps pipeline** (gitleaks · Checkov + tfsec · Trivy) + classifier unit tests + `terraform validate`; documented Checkov baseline.
+
+## Turning on live email scanning
+
+The inbox-scan Lambda is deployed and runs every 6 hours, but no-ops until it has a credential. To switch it on (one time):
+1. In your Google account, enable **2-Step Verification**, then create an **App Password** (Google Account → Security → App passwords) for "Mail".
+2. Make sure **IMAP is enabled** in Gmail (Settings → Forwarding and POP/IMAP).
+3. Put it in the existing Secrets Manager secret `jobhunt/email-credentials`:
+   ```
+   aws secretsmanager put-secret-value --secret-id jobhunt/email-credentials \
+     --secret-string '{"email":"you@gmail.com","app_password":"<16-char app password>","imap_host":"imap.gmail.com"}'
+   ```
+That's it — the next scheduled run will classify recent mail and link it to your applications. The App Password never expires, is read-only, and can be revoked anytime.
 
 ## Future scope — advanced
 
