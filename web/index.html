@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Job Hunt Command Center</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23ec7211'/%3E%3Ctext x='16' y='23' font-size='18' text-anchor='middle' fill='%23fff' font-family='Arial'%3EJ%3C/text%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- LOGIN -->
+  <section id="login" class="login" hidden>
+    <form id="login-form" class="login-card">
+      <div class="brand">🎯 Job Hunt Command Center</div>
+      <p class="sub">Your whole search in one place. Sign in.</p>
+      <label for="email">Email</label>
+      <input id="email" type="email" autocomplete="username" required />
+      <label for="password">Password</label>
+      <input id="password" type="password" autocomplete="current-password" required />
+      <button type="submit" id="login-btn">Sign in</button>
+      <p class="err" id="login-err"></p>
+    </form>
+  </section>
+
+  <!-- APP -->
+  <div id="app" hidden>
+    <header class="top">
+      <div class="brand-sm">🎯 Command Center</div>
+      <input id="search" type="search" placeholder="Search company, role, tag… (/)" />
+      <div class="top-r">
+        <span id="who" class="who"></span>
+        <button id="logout" class="ghost">Sign out</button>
+      </div>
+    </header>
+
+    <section class="stats" id="stats"></section>
+
+    <div class="toolbar">
+      <div class="filters" id="filters"></div>
+      <div class="tools">
+        <button id="export" class="ghost">⬇ CSV</button>
+        <button id="add" class="primary">+ Log application</button>
+      </div>
+    </div>
+
+    <section id="list" class="cards"></section>
+    <p id="empty" class="empty" hidden>No applications yet. Hit <b>+ Log application</b> to start tracking.</p>
+  </div>
+
+  <!-- APPLICATION EDITOR (modal) -->
+  <div id="modal" class="modal" hidden>
+    <div class="sheet">
+      <div class="sheet-head">
+        <h2 id="sheet-title">Log application</h2>
+        <button id="sheet-close" class="x">✕</button>
+      </div>
+      <form id="app-form" class="grid2">
+        <label>Company<input name="company" required /></label>
+        <label>Title<input name="title" required /></label>
+        <label>Location<input name="location" placeholder="City / Remote" /></label>
+        <label>Work mode
+          <select name="workMode"><option value="">—</option><option>Remote</option><option>Hybrid</option><option>On-site</option></select>
+        </label>
+        <label>Salary range<input name="salary" placeholder="$120k–$150k" /></label>
+        <label>Source
+          <select name="source"><option value="">—</option><option>LinkedIn</option><option>Referral</option><option>Company site</option><option>Indeed</option><option>Other</option></select>
+        </label>
+        <label>Posting URL<input name="url" type="url" placeholder="https://…" /></label>
+        <label>Status
+          <select name="status"><option>applied</option><option>screen</option><option>interview</option><option>offer</option><option>rejected</option><option>ghosted</option></select>
+        </label>
+        <label>Recruiter name<input name="contactName" /></label>
+        <label>Recruiter email<input name="contactEmail" type="email" /></label>
+        <label>Next action<input name="nextAction" placeholder="Follow up, prep, …" /></label>
+        <label>Next action due<input name="nextDue" type="date" /></label>
+        <label class="check2"><input type="checkbox" name="sponsors" /> Sponsors / accepts OPT</label>
+        <label>Tags (comma-sep)<input name="tags" placeholder="aws, remote, devops" /></label>
+        <label class="full">Job description<textarea name="jd" rows="4" placeholder="Paste the JD — kept for interview prep + future match scoring"></textarea></label>
+        <label class="full">Résumé you applied with (PDF)
+          <input type="file" id="resume" accept="application/pdf" />
+          <span id="resume-status" class="filenote"></span>
+        </label>
+        <div class="full docs" id="docs"></div>
+        <div class="full sheet-actions">
+          <button type="button" id="delete" class="danger" hidden>Delete</button>
+          <span style="flex:1"></span>
+          <button type="button" id="cancel" class="ghost">Cancel</button>
+          <button type="submit" class="primary" id="save">Save</button>
+        </div>
+        <p class="err full" id="form-err"></p>
+      </form>
+    </div>
+  </div>
+
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
