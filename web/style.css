@@ -14,6 +14,10 @@ input, select, textarea { width: 100%; font: inherit; padding: .5rem .6rem; bord
 input:focus, select:focus, textarea:focus { outline: 2px solid var(--link); border-color: var(--link); }
 .err { color: var(--danger); font-size: .85rem; min-height: 1em; }
 
+/* the [hidden] attribute must win over the display rules below (else login/app
+   both show/overlap) — same class of bug as an always-open panel */
+[hidden] { display: none !important; }
+
 /* login */
 .login { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 1.5rem; }
 .login-card { background: #fff; border: 1px solid var(--border-soft); border-radius: 16px; padding: 1.6rem; width: 100%; max-width: 360px; box-shadow: 0 12px 40px rgba(0,0,0,.08); }
