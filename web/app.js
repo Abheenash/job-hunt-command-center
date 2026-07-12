@@ -3,15 +3,20 @@ const CFG = window.JHCC_CONFIG || {};
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = (s) => (s == null ? "" : String(s)).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-const LS = { id: "jhcc_id", refresh: "jhcc_refresh", email: "jhcc_email" };
+const LS = { id: "jhcc_id", access: "jhcc_access", refresh: "jhcc_refresh", email: "jhcc_email" };
+
+const STATUSES = ["applied", "screen", "interview", "offer", "rejected", "ghosted"];
+const US_STATES = ["Remote", "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY", "DC"];
+const FORM_FIELDS = ["company", "title", "dateApplied", "status", "location", "state", "workMode",
+  "seniority", "salary", "source", "url", "contactName", "contactEmail", "nextAction", "nextDue",
+  "tags", "requiredSkills", "niceToHave"];
 
 let APPS = [];
-let editing = null; // appId being edited, or null for new
-const STATUSES = ["applied", "screen", "interview", "offer", "rejected", "ghosted"];
-let filter = "all";
-let query = "";
+let editing = null;
+let filterStatus = "all", filterState = "", filterDate = "", query = "";
+let mfaSession = null, mfaUser = null; // pending login challenge
 
-// ---------- Cognito auth (USER_PASSWORD_AUTH, no SDK) -----------------------
+// ---------- Cognito (no SDK) -----------------------------------------------
 async function cognito(target, body) {
   const r = await fetch(`https://cognito-idp.${CFG.region}.amazonaws.com/`, {
     method: "POST",
@@ -19,8 +24,15 @@ async function cognito(target, body) {
     body: JSON.stringify(body),
   });
   const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(j.message || j.__type || "auth error");
+  if (!r.ok) throw new Error(prettyErr(j.message || j.__type || "auth error"));
   return j;
+}
+const prettyErr = (m) => String(m).replace(/^.*#/, "").replace(/Exception$/, "");
+
+function storeTokens(a) {
+  if (a.IdToken) localStorage.setItem(LS.id, a.IdToken);
+  if (a.AccessToken) localStorage.setItem(LS.access, a.AccessToken);
+  if (a.RefreshToken) localStorage.setItem(LS.refresh, a.RefreshToken);
 }
 
 async function login(email, password) {
@@ -28,11 +40,25 @@ async function login(email, password) {
     AuthFlow: "USER_PASSWORD_AUTH", ClientId: CFG.clientId,
     AuthParameters: { USERNAME: email, PASSWORD: password },
   });
-  const a = j.AuthenticationResult;
-  if (!a) throw new Error("Login needs a step this simple client doesn't support.");
-  localStorage.setItem(LS.id, a.IdToken);
-  if (a.RefreshToken) localStorage.setItem(LS.refresh, a.RefreshToken);
+  if (j.ChallengeName === "SOFTWARE_TOKEN_MFA") {
+    mfaSession = j.Session; mfaUser = email;
+    $("#login-step").hidden = true; $("#mfa-step").hidden = false; $("#mfa-code").focus();
+    return;
+  }
+  storeTokens(j.AuthenticationResult);
   localStorage.setItem(LS.email, email);
+  show(true);
+}
+
+async function mfaLogin(code) {
+  const j = await cognito("RespondToAuthChallenge", {
+    ChallengeName: "SOFTWARE_TOKEN_MFA", ClientId: CFG.clientId, Session: mfaSession,
+    ChallengeResponses: { USERNAME: mfaUser, SOFTWARE_TOKEN_MFA_CODE: code },
+  });
+  storeTokens(j.AuthenticationResult);
+  localStorage.setItem(LS.email, mfaUser);
+  mfaSession = null;
+  show(true);
 }
 
 async function refresh() {
@@ -41,12 +67,12 @@ async function refresh() {
   const j = await cognito("InitiateAuth", {
     AuthFlow: "REFRESH_TOKEN_AUTH", ClientId: CFG.clientId, AuthParameters: { REFRESH_TOKEN: rt },
   });
-  localStorage.setItem(LS.id, j.AuthenticationResult.IdToken);
+  storeTokens(j.AuthenticationResult);
 }
 
 function logout() {
-  [LS.id, LS.refresh, LS.email].forEach((k) => localStorage.removeItem(k));
-  show(false);
+  Object.values(LS).forEach((k) => localStorage.removeItem(k));
+  location.reload();
 }
 
 // ---------- API ------------------------------------------------------------
@@ -67,16 +93,10 @@ async function api(method, path, body, _retried) {
 
 // ---------- load + render --------------------------------------------------
 async function load() {
-  const j = await api("GET", "/applications");
-  APPS = j.applications || [];
+  APPS = (await api("GET", "/applications")).applications || [];
   render();
 }
-
-function render() {
-  renderStats();
-  renderFilters();
-  renderList();
-}
+function render() { renderStats(); renderStateFilter(); renderFilters(); renderList(); renderActivity(); }
 
 function renderStats() {
   const n = APPS.length;
@@ -84,28 +104,40 @@ function renderStats() {
   const responded = APPS.filter((a) => ["screen", "interview", "offer", "rejected"].includes(a.status)).length;
   const rate = n ? Math.round((responded / n) * 100) : 0;
   const active = APPS.filter((a) => ["applied", "screen", "interview"].includes(a.status)).length;
-  const cards = [
-    ["Total", n], ["Active", active], ["Interviews", by("interview")],
-    ["Offers", by("offer")], ["Response rate", rate + "%"],
-  ];
+  const cards = [["Total", n], ["Active", active], ["Interviews", by("interview")], ["Offers", by("offer")], ["Response rate", rate + "%"]];
   $("#stats").innerHTML = cards.map(([k, v]) => `<div class="stat"><b>${v}</b><span>${k}</span></div>`).join("");
+}
+
+function renderStateFilter() {
+  const present = [...new Set(APPS.map((a) => a.state).filter(Boolean))].sort();
+  const sel = $("#f-state");
+  const cur = sel.value;
+  sel.innerHTML = `<option value="">All states</option>` + present.map((s) => `<option ${s === cur ? "selected" : ""}>${esc(s)}</option>`).join("");
 }
 
 function renderFilters() {
   const counts = { all: APPS.length };
   STATUSES.forEach((s) => (counts[s] = APPS.filter((a) => a.status === s).length));
-  const chip = (k) => `<button class="chip ${filter === k ? "on" : ""}" data-f="${k}">${k}<span>${counts[k] || 0}</span></button>`;
-  $("#filters").innerHTML = ["all", ...STATUSES].map(chip).join("");
-  $$("#filters .chip").forEach((b) => (b.onclick = () => { filter = b.dataset.f; renderList(); renderFilters(); }));
+  $("#filters").innerHTML = ["all", ...STATUSES].map((k) =>
+    `<button class="chip ${filterStatus === k ? "on" : ""}" data-f="${k}">${k}<span>${counts[k] || 0}</span></button>`).join("");
+  $$("#filters .chip").forEach((b) => (b.onclick = () => { filterStatus = b.dataset.f; renderFilters(); renderList(); }));
+}
+
+function visible() {
+  let rows = APPS.slice();
+  if (filterStatus !== "all") rows = rows.filter((a) => a.status === filterStatus);
+  if (filterState) rows = rows.filter((a) => a.state === filterState);
+  if (filterDate) rows = rows.filter((a) => a.dateApplied === filterDate);
+  if (query) {
+    const q = query.toLowerCase();
+    rows = rows.filter((a) => [a.company, a.title, a.location, a.state, a.tags, a.requiredSkills].join(" ").toLowerCase().includes(q));
+  }
+  return rows;
 }
 
 function renderList() {
-  let rows = APPS.slice();
-  if (filter !== "all") rows = rows.filter((a) => a.status === filter);
-  if (query) {
-    const q = query.toLowerCase();
-    rows = rows.filter((a) => [a.company, a.title, a.location, (a.tags || "")].join(" ").toLowerCase().includes(q));
-  }
+  const rows = visible();
+  $("#f-clear").hidden = !(filterState || filterDate);
   $("#empty").hidden = APPS.length !== 0;
   $("#list").innerHTML = rows.map(card).join("");
   $$("#list .card").forEach((c) => (c.onclick = () => openModal(c.dataset.id)));
@@ -114,13 +146,28 @@ function renderList() {
 function card(a) {
   const due = a.nextDue ? `<span class="due">⏰ ${esc(a.nextAction || "next")} · ${a.nextDue}</span>` : "";
   const spons = a.sponsors ? `<span class="tag sp">sponsors</span>` : "";
-  const tags = (a.tags || "").split(",").map((t) => t.trim()).filter(Boolean).slice(0, 4)
-    .map((t) => `<span class="tag">${esc(t)}</span>`).join("");
+  const st = a.state ? `<span class="tag st">${esc(a.state)}</span>` : "";
+  const tags = (a.tags || "").split(",").map((t) => t.trim()).filter(Boolean).slice(0, 3).map((t) => `<span class="tag">${esc(t)}</span>`).join("");
   return `<article class="card" data-id="${a.appId}">
     <div class="card-h"><b>${esc(a.company || "—")}</b><span class="pill ${a.status}">${a.status}</span></div>
     <div class="role">${esc(a.title || "")}</div>
-    <div class="meta">${esc(a.location || "")}${a.workMode ? " · " + esc(a.workMode) : ""}${a.source ? " · " + esc(a.source) : ""}</div>
-    <div class="tags">${spons}${tags}</div>${due}</article>`;
+    <div class="meta">${esc(a.dateApplied || "")}${a.location ? " · " + esc(a.location) : ""}${a.workMode ? " · " + esc(a.workMode) : ""}</div>
+    <div class="tags">${st}${spons}${tags}</div>${due}</article>`;
+}
+
+function renderActivity() {
+  const byDate = {};
+  APPS.forEach((a) => { if (a.dateApplied) byDate[a.dateApplied] = (byDate[a.dateApplied] || 0) + 1; });
+  const dates = Object.keys(byDate).sort().reverse();
+  const max = Math.max(1, ...Object.values(byDate));
+  $("#activity").innerHTML = `<div class="act-head">📅 Applications by date <span class="filenote">click a date to filter</span></div>` +
+    (dates.length ? dates.map((d) =>
+      `<div class="act-row ${filterDate === d ? "on" : ""}" data-d="${d}">
+        <span class="act-date">${esc(d)}</span>
+        <span class="act-bar"><i style="width:${(byDate[d] / max) * 100}%"></i></span>
+        <b class="act-n">${byDate[d]}</b></div>`).join("")
+      : `<p class="filenote">No dates yet.</p>`);
+  $$("#activity .act-row").forEach((r) => (r.onclick = () => { filterDate = filterDate === r.dataset.d ? "" : r.dataset.d; $("#f-date").value = filterDate; renderActivity(); renderList(); }));
 }
 
 // ---------- modal / editor -------------------------------------------------
@@ -131,24 +178,23 @@ function openModal(id) {
   f.reset();
   $("#sheet-title").textContent = id ? "Edit application" : "Log application";
   $("#delete").hidden = !id;
-  $("#form-err").textContent = "";
-  $("#resume-status").textContent = "";
-  $("#resume").value = "";
-  ["company", "title", "location", "workMode", "salary", "source", "url", "status",
-    "contactName", "contactEmail", "nextAction", "nextDue", "tags", "jd"].forEach((k) => {
-    if (f[k] != null) f[k].value = a[k] || (k === "status" ? "applied" : "");
-  });
+  ["form-err"].forEach((x) => ($("#" + x).textContent = ""));
+  $("#resume-status").textContent = ""; $("#resume").value = "";
+  $("#autofill-status").textContent = "";
+  $("#jd").value = a.jd || "";
+  FORM_FIELDS.forEach((k) => { if (f[k] != null) f[k].value = a[k] || ""; });
+  if (!f.status.value) f.status.value = "applied";
+  if (!f.dateApplied.value) f.dateApplied.value = today();
   f.sponsors.checked = !!a.sponsors;
   renderDocs(a.documents || []);
   $("#modal").hidden = false;
 }
 function closeModal() { $("#modal").hidden = true; editing = null; }
+const today = () => new Date().toISOString().slice(0, 10);
 
 function renderDocs(docs) {
   $("#docs").innerHTML = docs.length
-    ? "<div class='doclist'>" + docs.map((d) =>
-        `<a href="#" data-key="${esc(d.docKey)}">📄 ${esc(d.filename || d.kind || "document")}</a>`).join("") + "</div>"
-    : "";
+    ? "<div class='doclist'>" + docs.map((d) => `<a href="#" data-key="${esc(d.docKey)}">📄 ${esc(d.filename || "document")}</a>`).join("") + "</div>" : "";
   $$("#docs a").forEach((el) => (el.onclick = async (e) => {
     e.preventDefault();
     const j = await api("GET", "/download?key=" + encodeURIComponent(el.dataset.key));
@@ -156,32 +202,41 @@ function renderDocs(docs) {
   }));
 }
 
+async function autofill() {
+  const jd = $("#jd").value.trim();
+  if (jd.length < 20) { $("#autofill-status").textContent = "Paste a longer JD first."; return; }
+  $("#autofill").disabled = true; $("#autofill-status").textContent = "✨ Reading the JD…";
+  try {
+    const { fields } = await api("POST", "/parse-jd", { jd });
+    const f = $("#app-form");
+    Object.entries(fields || {}).forEach(([k, v]) => { if (f[k] != null && v) f[k].value = v; });
+    $("#autofill-status").textContent = "Filled ✓ — review and save.";
+  } catch (e) {
+    $("#autofill-status").textContent = e.message;
+  } finally { $("#autofill").disabled = false; }
+}
+
 async function saveApp(e) {
   e.preventDefault();
   const f = $("#app-form");
-  const rec = {};
-  ["company", "title", "location", "workMode", "salary", "source", "url", "status",
-    "contactName", "contactEmail", "nextAction", "nextDue", "tags", "jd"].forEach((k) => (rec[k] = f[k].value.trim()));
+  if (!f.company.value.trim() || !f.title.value.trim() || !f.dateApplied.value) {
+    $("#form-err").textContent = "Company, title, and date applied are required."; return;
+  }
+  const rec = { jd: $("#jd").value.trim() };
+  FORM_FIELDS.forEach((k) => (rec[k] = f[k].value.trim ? f[k].value.trim() : f[k].value));
   rec.sponsors = f.sponsors.checked;
   $("#save").disabled = true; $("#form-err").textContent = "";
   try {
-    let saved = editing
-      ? await api("PUT", "/applications/" + editing, rec)
-      : await api("POST", "/applications", rec);
+    let saved = editing ? await api("PUT", "/applications/" + editing, rec) : await api("POST", "/applications", rec);
     const file = $("#resume").files[0];
     if (file) {
       $("#resume-status").textContent = "Uploading résumé…";
       const doc = await uploadDoc(saved.appId, file);
-      const docs = (saved.documents || []).concat([doc]);
-      saved = await api("PUT", "/applications/" + saved.appId, { documents: docs });
+      saved = await api("PUT", "/applications/" + saved.appId, { documents: (saved.documents || []).concat([doc]) });
     }
-    closeModal();
-    await load();
-  } catch (err) {
-    $("#form-err").textContent = err.message;
-  } finally {
-    $("#save").disabled = false;
-  }
+    closeModal(); await load();
+  } catch (err) { $("#form-err").textContent = err.message; }
+  finally { $("#save").disabled = false; }
 }
 
 async function uploadDoc(appId, file) {
@@ -193,47 +248,110 @@ async function uploadDoc(appId, file) {
 
 async function delApp() {
   if (!editing || !confirm("Delete this application?")) return;
-  await api("DELETE", "/applications/" + editing);
-  closeModal(); await load();
+  await api("DELETE", "/applications/" + editing); closeModal(); await load();
 }
 
-// ---------- CSV export -----------------------------------------------------
 function exportCsv() {
-  const cols = ["company", "title", "status", "location", "workMode", "salary", "source",
-    "url", "contactName", "contactEmail", "sponsors", "nextAction", "nextDue", "tags"];
-  const esc2 = (v) => `"${String(v == null ? "" : v).replace(/"/g, '""')}"`;
-  const rows = [cols.join(",")].concat(APPS.map((a) => cols.map((c) => esc2(a[c])).join(",")));
-  const blob = new Blob([rows.join("\n")], { type: "text/csv" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url; link.download = "job-applications.csv"; link.click();
+  const cols = ["company", "title", "status", "dateApplied", "location", "state", "workMode", "seniority",
+    "salary", "source", "url", "contactName", "contactEmail", "sponsors", "nextAction", "nextDue", "tags", "requiredSkills"];
+  const q = (v) => `"${String(v == null ? "" : v).replace(/"/g, '""')}"`;
+  const rows = [cols.join(",")].concat(APPS.map((a) => cols.map((c) => q(a[c])).join(",")));
+  const url = URL.createObjectURL(new Blob([rows.join("\n")], { type: "text/csv" }));
+  const link = document.createElement("a"); link.href = url; link.download = "job-applications.csv"; link.click();
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
+// ---------- settings: password + MFA ---------------------------------------
+async function changePassword() {
+  const oldp = $("#pw-old").value, newp = $("#pw-new").value;
+  const msg = $("#pw-msg"); msg.className = "err"; msg.textContent = "";
+  try {
+    await cognito("ChangePassword", { AccessToken: localStorage.getItem(LS.access), PreviousPassword: oldp, ProposedPassword: newp });
+    msg.className = "ok"; msg.textContent = "Password updated ✓"; $("#pw-old").value = ""; $("#pw-new").value = "";
+  } catch (e) { msg.textContent = e.message; }
+}
+
+async function refreshMfaState() {
+  const u = await cognito("GetUser", { AccessToken: localStorage.getItem(LS.access) });
+  const on = (u.UserMFASettingList || []).includes("SOFTWARE_TOKEN_MFA");
+  $("#mfa-state").textContent = on ? "MFA is ON — an authenticator code is required at sign-in." : "MFA is off. Add an authenticator app for extra security.";
+  $("#mfa-off").hidden = on; $("#mfa-on").hidden = !on; $("#mfa-setup").hidden = true;
+}
+
+async function mfaEnable() {
+  const j = await cognito("AssociateSoftwareToken", { AccessToken: localStorage.getItem(LS.access) });
+  const secret = j.SecretCode;
+  $("#mfa-secret").textContent = secret;
+  const email = localStorage.getItem(LS.email);
+  $("#mfa-uri").href = `otpauth://totp/JobHuntCommandCenter:${encodeURIComponent(email)}?secret=${secret}&issuer=JobHuntCommandCenter`;
+  $("#mfa-off").hidden = true; $("#mfa-setup").hidden = false; $("#mfa-msg").textContent = "";
+}
+
+async function mfaVerify() {
+  const msg = $("#mfa-msg"); msg.className = "err"; msg.textContent = "";
+  try {
+    const v = await cognito("VerifySoftwareToken", { AccessToken: localStorage.getItem(LS.access), UserCode: $("#mfa-verify-code").value.trim() });
+    if (v.Status !== "SUCCESS") throw new Error("code didn't verify");
+    await cognito("SetUserMFAPreference", { AccessToken: localStorage.getItem(LS.access), SoftwareTokenMfaSettings: { Enabled: true, PreferredMfa: true } });
+    msg.className = "ok"; msg.textContent = "MFA enabled ✓";
+    await refreshMfaState();
+  } catch (e) { msg.textContent = e.message; }
+}
+
+async function mfaDisable() {
+  const msg = $("#mfa-msg"); msg.className = "err"; msg.textContent = "";
+  try {
+    await cognito("SetUserMFAPreference", { AccessToken: localStorage.getItem(LS.access), SoftwareTokenMfaSettings: { Enabled: false, PreferredMfa: false } });
+    await refreshMfaState();
+  } catch (e) { msg.textContent = e.message; }
+}
+
+function openSettings() { $("#settings").hidden = false; $("#pw-msg").textContent = ""; $("#mfa-msg").textContent = ""; refreshMfaState().catch((e) => ($("#mfa-state").textContent = e.message)); }
+
 // ---------- wiring ---------------------------------------------------------
+function fillStateSelects() {
+  const opts = US_STATES.map((s) => `<option>${s}</option>`).join("");
+  $("#state-select").innerHTML = `<option value="">—</option>` + opts;
+}
+
 function show(authed) {
-  $("#login").hidden = authed;
-  $("#app").hidden = !authed;
+  $("#login").hidden = authed; $("#app").hidden = !authed;
   if (authed) { $("#who").textContent = localStorage.getItem(LS.email) || ""; load().catch((e) => console.error(e)); }
 }
 
 $("#login-form").onsubmit = async (e) => {
-  e.preventDefault();
-  $("#login-err").textContent = ""; $("#login-btn").disabled = true;
-  try { await login($("#email").value.trim(), $("#password").value); show(true); }
+  e.preventDefault(); $("#login-err").textContent = ""; $("#login-btn").disabled = true;
+  try { await login($("#email").value.trim(), $("#password").value); }
   catch (err) { $("#login-err").textContent = err.message; }
   finally { $("#login-btn").disabled = false; }
 };
+$("#mfa-btn").onclick = async () => {
+  $("#login-err").textContent = "";
+  try { await mfaLogin($("#mfa-code").value.trim()); }
+  catch (err) { $("#login-err").textContent = err.message; }
+};
 $("#logout").onclick = logout;
+$("#settings-btn").onclick = openSettings;
+$("#settings-close").onclick = () => ($("#settings").hidden = true);
+$("#pw-save").onclick = changePassword;
+$("#mfa-enable").onclick = () => mfaEnable().catch((e) => ($("#mfa-msg").textContent = e.message));
+$("#mfa-verify").onclick = mfaVerify;
+$("#mfa-disable").onclick = mfaDisable;
 $("#add").onclick = () => openModal(null);
 $("#cancel").onclick = closeModal;
 $("#sheet-close").onclick = closeModal;
 $("#delete").onclick = delApp;
+$("#autofill").onclick = autofill;
 $("#app-form").onsubmit = saveApp;
 $("#export").onclick = exportCsv;
+$("#activity-btn").onclick = () => ($("#activity").hidden = !$("#activity").hidden);
+$("#f-state").onchange = (e) => { filterState = e.target.value; renderList(); };
+$("#f-date").onchange = (e) => { filterDate = e.target.value; renderActivity(); renderList(); };
+$("#f-clear").onclick = () => { filterState = ""; filterDate = ""; $("#f-state").value = ""; $("#f-date").value = ""; renderActivity(); renderList(); renderStateFilter(); };
 $("#search").oninput = (e) => { query = e.target.value; renderList(); };
-document.onkeydown = (e) => { if (e.key === "/" && $("#app").hidden === false && document.activeElement.tagName !== "INPUT" && document.activeElement.tagName !== "TEXTAREA") { e.preventDefault(); $("#search").focus(); } };
+document.onkeydown = (e) => { if (e.key === "/" && !$("#app").hidden && !["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName)) { e.preventDefault(); $("#search").focus(); } };
 
 // boot
+fillStateSelects();
 if (!CFG.apiBase) { $("#login").hidden = false; $("#login-err").textContent = "config.js not set."; }
 else show(!!localStorage.getItem(LS.id));

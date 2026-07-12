@@ -25,6 +25,19 @@ from botocore.config import Config
 
 s3 = boto3.client("s3", config=Config(signature_version="s3v4"))
 ddb = boto3.client("dynamodb")
+bedrock = boto3.client("bedrock-runtime")
+
+BEDROCK_MODEL = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+
+JD_SYSTEM = (
+    "You extract structured fields from a job description for an application "
+    "tracker. Reply with ONLY a compact JSON object, no prose, no code fences. "
+    "Keys (use empty string/array if absent — never invent facts not in the text): "
+    '{"company":str,"title":str,"location":str,"state":str (2-letter US code, or '
+    '"Remote", or ""),"workMode":str ("Remote"|"Hybrid"|"On-site"|""),"salary":str,'
+    '"seniority":str,"tags":str (comma-separated 3-6 keywords),'
+    '"requiredSkills":str (comma-separated),"niceToHave":str (comma-separated)}'
+)
 
 
 class NotFound(Exception):
@@ -52,6 +65,10 @@ def handler(event, _ctx):
         # /download?key=...
         if parts[:1] == ["download"] and method == "GET":
             return download_url(user, qs.get("key", ""))
+
+        # /parse-jd  (AI field extraction)
+        if parts[:1] == ["parse-jd"] and method == "POST":
+            return parse_jd(body)
 
         if parts[:1] == ["applications"]:
             if len(parts) == 1:
@@ -181,6 +198,36 @@ def _owned(user, app_id):
     if record.get("userId") != user:
         raise PermissionError()
     return record
+
+
+def parse_jd(body):
+    """Extract structured application fields from a pasted job description."""
+    jd = str((body or {}).get("jd") or "").strip()
+    if len(jd) < 20:
+        return _r(400, {"error": "paste a longer job description"})
+    payload = {
+        "anthropic_version": "bedrock-2023-05-31",
+        "max_tokens": 600,
+        "system": JD_SYSTEM,
+        "messages": [{"role": "user", "content": [{"type": "text", "text": jd[:12000]}]}],
+    }
+    try:
+        resp = bedrock.invoke_model(modelId=BEDROCK_MODEL, body=json.dumps(payload))
+        text = json.loads(resp["body"].read())["content"][0]["text"]
+        fields = json.loads(_first_json(text))
+    except Exception as e:  # noqa: BLE001
+        print(f"parse-jd failed: {type(e).__name__}: {e}")
+        return _r(502, {"error": "couldn't parse that JD, try again"})
+    # keep only known keys
+    allowed = {"company", "title", "location", "state", "workMode", "salary",
+               "seniority", "tags", "requiredSkills", "niceToHave"}
+    return _r(200, {"fields": {k: v for k, v in fields.items() if k in allowed}})
+
+
+def _first_json(text):
+    start = text.find("{")
+    end = text.rfind("}")
+    return text[start:end + 1] if start != -1 and end != -1 else "{}"
 
 
 def _parse_body(event):

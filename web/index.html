@@ -13,11 +13,18 @@
     <form id="login-form" class="login-card">
       <div class="brand">🎯 Job Hunt Command Center</div>
       <p class="sub">Your whole search in one place. Sign in.</p>
-      <label for="email">Email</label>
-      <input id="email" type="email" autocomplete="username" required />
-      <label for="password">Password</label>
-      <input id="password" type="password" autocomplete="current-password" required />
-      <button type="submit" id="login-btn">Sign in</button>
+      <div id="login-step">
+        <label for="email">Email</label>
+        <input id="email" type="email" autocomplete="username" required />
+        <label for="password">Password</label>
+        <input id="password" type="password" autocomplete="current-password" required />
+        <button type="submit" id="login-btn">Sign in</button>
+      </div>
+      <div id="mfa-step" hidden>
+        <label for="mfa-code">Authenticator code</label>
+        <input id="mfa-code" inputmode="numeric" autocomplete="one-time-code" placeholder="6-digit code" />
+        <button type="button" id="mfa-btn">Verify &amp; sign in</button>
+      </div>
       <p class="err" id="login-err"></p>
     </form>
   </section>
@@ -29,6 +36,7 @@
       <input id="search" type="search" placeholder="Search company, role, tag… (/)" />
       <div class="top-r">
         <span id="who" class="who"></span>
+        <button id="settings-btn" class="ghost" title="Settings">⚙</button>
         <button id="logout" class="ghost">Sign out</button>
       </div>
     </header>
@@ -38,10 +46,16 @@
     <div class="toolbar">
       <div class="filters" id="filters"></div>
       <div class="tools">
+        <select id="f-state" class="mini"><option value="">All states</option></select>
+        <input id="f-date" type="date" class="mini" title="Filter by date applied" />
+        <button id="f-clear" class="ghost mini" hidden>clear</button>
+        <button id="activity-btn" class="ghost">📅 By date</button>
         <button id="export" class="ghost">⬇ CSV</button>
         <button id="add" class="primary">+ Log application</button>
       </div>
     </div>
+
+    <section id="activity" class="activity" hidden></section>
 
     <section id="list" class="cards"></section>
     <p id="empty" class="empty" hidden>No applications yet. Hit <b>+ Log application</b> to start tracking.</p>
@@ -54,28 +68,40 @@
         <h2 id="sheet-title">Log application</h2>
         <button id="sheet-close" class="x">✕</button>
       </div>
+
+      <div class="jd-box">
+        <label>✨ Paste the job description — AI fills the fields for you</label>
+        <textarea id="jd" rows="4" placeholder="Paste the full JD here, then hit Autofill. (The text is saved for interview prep too.)"></textarea>
+        <button type="button" id="autofill" class="primary sm">✨ Autofill from JD</button>
+        <span id="autofill-status" class="filenote"></span>
+      </div>
+
       <form id="app-form" class="grid2">
-        <label>Company<input name="company" required /></label>
-        <label>Title<input name="title" required /></label>
+        <label>Company <span class="req">*</span><input name="company" required /></label>
+        <label>Title <span class="req">*</span><input name="title" required /></label>
+        <label>Date applied <span class="req">*</span><input name="dateApplied" type="date" required /></label>
+        <label>Status <span class="req">*</span>
+          <select name="status"><option>applied</option><option>screen</option><option>interview</option><option>offer</option><option>rejected</option><option>ghosted</option></select>
+        </label>
         <label>Location<input name="location" placeholder="City / Remote" /></label>
+        <label>State<select name="state" id="state-select"><option value="">—</option></select></label>
         <label>Work mode
           <select name="workMode"><option value="">—</option><option>Remote</option><option>Hybrid</option><option>On-site</option></select>
         </label>
+        <label>Seniority<input name="seniority" placeholder="Junior / Mid / Senior" /></label>
         <label>Salary range<input name="salary" placeholder="$120k–$150k" /></label>
         <label>Source
           <select name="source"><option value="">—</option><option>LinkedIn</option><option>Referral</option><option>Company site</option><option>Indeed</option><option>Other</option></select>
         </label>
         <label>Posting URL<input name="url" type="url" placeholder="https://…" /></label>
-        <label>Status
-          <select name="status"><option>applied</option><option>screen</option><option>interview</option><option>offer</option><option>rejected</option><option>ghosted</option></select>
-        </label>
+        <label class="check2"><input type="checkbox" name="sponsors" /> Sponsors / accepts OPT</label>
         <label>Recruiter name<input name="contactName" /></label>
         <label>Recruiter email<input name="contactEmail" type="email" /></label>
         <label>Next action<input name="nextAction" placeholder="Follow up, prep, …" /></label>
         <label>Next action due<input name="nextDue" type="date" /></label>
-        <label class="check2"><input type="checkbox" name="sponsors" /> Sponsors / accepts OPT</label>
         <label>Tags (comma-sep)<input name="tags" placeholder="aws, remote, devops" /></label>
-        <label class="full">Job description<textarea name="jd" rows="4" placeholder="Paste the JD — kept for interview prep + future match scoring"></textarea></label>
+        <label class="full">Required skills<input name="requiredSkills" placeholder="auto-filled from the JD" /></label>
+        <label class="full">Nice to have<input name="niceToHave" placeholder="auto-filled from the JD" /></label>
         <label class="full">Résumé you applied with (PDF)
           <input type="file" id="resume" accept="application/pdf" />
           <span id="resume-status" class="filenote"></span>
@@ -89,6 +115,42 @@
         </div>
         <p class="err full" id="form-err"></p>
       </form>
+    </div>
+  </div>
+
+  <!-- SETTINGS (modal) -->
+  <div id="settings" class="modal" hidden>
+    <div class="sheet sm-sheet">
+      <div class="sheet-head"><h2>Settings</h2><button id="settings-close" class="x">✕</button></div>
+      <div class="settings-body">
+        <section class="setblock">
+          <h3>🔑 Change password</h3>
+          <label>Current password<input id="pw-old" type="password" autocomplete="current-password" /></label>
+          <label>New password<input id="pw-new" type="password" autocomplete="new-password" /></label>
+          <p class="filenote">Min 10 chars, upper + lower + number.</p>
+          <button id="pw-save" class="primary sm">Update password</button>
+          <p class="err" id="pw-msg"></p>
+        </section>
+
+        <section class="setblock">
+          <h3>🛡️ Two-factor (authenticator app)</h3>
+          <p class="filenote" id="mfa-state">Checking…</p>
+          <div id="mfa-off" hidden>
+            <button id="mfa-enable" class="primary sm">Enable MFA</button>
+          </div>
+          <div id="mfa-setup" hidden>
+            <p class="filenote">Scan or paste this secret into your authenticator app (Google Authenticator, Authy…):</p>
+            <code id="mfa-secret" class="secret"></code>
+            <a id="mfa-uri" class="filenote" href="#" target="_blank" rel="noopener">open in app ↗</a>
+            <label>Enter the 6-digit code to confirm<input id="mfa-verify-code" inputmode="numeric" placeholder="123456" /></label>
+            <button id="mfa-verify" class="primary sm">Confirm &amp; turn on</button>
+          </div>
+          <div id="mfa-on" hidden>
+            <button id="mfa-disable" class="danger sm">Disable MFA</button>
+          </div>
+          <p class="err" id="mfa-msg"></p>
+        </section>
+      </div>
     </div>
   </div>
 

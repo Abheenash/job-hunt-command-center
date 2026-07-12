@@ -89,3 +89,36 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--link); bord
 .docs .doclist { display: flex; flex-wrap: wrap; gap: .6rem; }
 .docs a { font-size: .85rem; }
 .sheet-actions { display: flex; align-items: center; gap: .6rem; }
+
+/* new: mini filters, required marker, tags, buttons */
+.mini { width: auto; padding: .4rem .55rem; font-size: .82rem; }
+button.sm, .primary.sm, .danger.sm { padding: .4rem .8rem; font-size: .84rem; }
+.req { color: var(--danger); font-weight: 700; }
+.tag.st { background: #eef2ff; color: #3b48c9; }
+.ok { color: var(--ok); font-size: .85rem; min-height: 1em; }
+#mfa-step { display: block; }
+
+/* JD autofill box */
+.jd-box { margin: 1.2rem 1.3rem 0; padding: 1rem; background: #fff7ed; border: 1px solid #f6d9b8; border-radius: 12px; }
+.jd-box label { display: block; font-weight: 700; color: #b35900; margin-bottom: .4rem; font-size: .9rem; }
+.jd-box textarea { width: 100%; }
+.jd-box button { margin-top: .6rem; }
+
+/* by-date activity */
+.activity { margin: 0 1.2rem 1rem; background: #fff; border: 1px solid var(--border-soft); border-radius: 12px; padding: 1rem 1.2rem; }
+.act-head { font-weight: 700; margin-bottom: .6rem; display: flex; gap: .6rem; align-items: baseline; }
+.act-row { display: flex; align-items: center; gap: .8rem; padding: .3rem 0; cursor: pointer; border-radius: 6px; }
+.act-row:hover, .act-row.on { background: #f2f8fd; }
+.act-date { width: 96px; font-size: .82rem; color: var(--muted); flex: none; }
+.act-bar { flex: 1; background: #eef0f2; height: 12px; border-radius: 6px; overflow: hidden; }
+.act-bar i { display: block; height: 100%; background: var(--orange); }
+.act-n { width: 28px; text-align: right; }
+
+/* settings */
+.sm-sheet { max-width: 460px; }
+.settings-body { padding: 1.3rem; display: flex; flex-direction: column; gap: 1.4rem; }
+.setblock h3 { font-size: 1rem; margin-bottom: .7rem; }
+.setblock label { display: block; font-size: .78rem; color: var(--muted); margin-top: .6rem; }
+.setblock input { margin-top: .25rem; }
+.setblock button { margin-top: .9rem; }
+.secret { display: block; background: #161d26; color: #7ee787; padding: .6rem .8rem; border-radius: 8px; font-family: monospace; font-size: .95rem; letter-spacing: 1px; word-break: break-all; margin: .3rem 0; }

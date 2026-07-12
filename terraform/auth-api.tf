@@ -12,6 +12,13 @@ resource "aws_cognito_user_pool" "users" {
     require_numbers   = true
     require_symbols   = false
   }
+
+  # Optional TOTP (authenticator-app) MFA — the user can turn it on in Settings.
+  mfa_configuration = "OPTIONAL"
+  software_token_mfa_configuration {
+    enabled = true
+  }
+
   tags = local.tags
 }
 
@@ -80,6 +87,16 @@ data "aws_iam_policy_document" "api" {
     sid       = "DocsPresign"
     actions   = ["s3:PutObject", "s3:GetObject"]
     resources = ["${aws_s3_bucket.docs.arn}/*"]
+  }
+  # JD parsing via Amazon Bedrock (Claude Haiku) — scoped to the one model +
+  # its cross-region inference profile.
+  statement {
+    sid     = "BedrockParseJD"
+    actions = ["bedrock:InvokeModel"]
+    resources = [
+      "arn:aws:bedrock:*::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0",
+      "arn:aws:bedrock:*:${local.acct}:inference-profile/us.anthropic.claude-haiku-4-5-20251001-v1:0",
+    ]
   }
 }
 
