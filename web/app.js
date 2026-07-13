@@ -408,7 +408,7 @@ function renderNotifList() {
   const l = $("#notif-list");
   l.innerHTML = NOTIFS.length ? NOTIFS.slice(0, 30).map((n) =>
     `<button class="notif-item" data-app="${esc(n.appId || "")}"><span class="notif-cat">${CAT_ICON[n.category] || "📨"}</span>
-      <div><b>${esc(n.subject || "(no subject)")}</b><small>${esc((n.category || "").replace(/_/g, " "))}${n.action ? ` · <b class="notif-act">✓ ${esc(n.action)}</b>` : ""}${n.from ? " · " + esc(n.from) : ""}</small></div></button>`).join("")
+      <div><b>${esc(n.subject || "(no subject)")}</b><small>${n.action ? `<b class="notif-act">✓ ${esc(n.action)}</b> · ` : ""}${esc((n.category || "").replace(/_/g, " "))}${n.summary ? " — " + esc(n.summary) : ""}</small></div></button>`).join("")
     : `<p class="notif-empty">No inbox findings yet.<br><span class="filenote">Turn on Gmail scanning and recruiter replies, rejections &amp; interviews will appear here automatically.</span></p>`;
   $$("#notif-list .notif-item").forEach((el) => (el.onclick = () => { const id = el.dataset.app; $("#notif-pop").hidden = true; if (id && id !== "unmatched") openDetail(id); }));
 }

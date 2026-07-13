@@ -18,17 +18,43 @@ import time
 from datetime import datetime, timedelta, timezone
 from email.header import decode_header
 
+import re
+
 import boto3
 
-from classifier import classify
+from classifier import classify  # keyword fallback if Bedrock is unavailable
 
 ddb = boto3.client("dynamodb")
 secrets = boto3.client("secretsmanager")
+bedrock = boto3.client("bedrock-runtime")
 
 APPS = os.environ["APPS_TABLE"]
 EVENTS = os.environ["EVENTS_TABLE"]
 SECRET_ID = os.environ["SECRET_ID"]
 LOOKBACK_DAYS = int(os.environ.get("LOOKBACK_DAYS", "3"))
+BEDROCK_MODEL = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+
+# Bedrock reads the whole email and decides what it's actually about.
+AI_CLASSIFY_SYSTEM = (
+    "You triage one email for a job-application tracker. Read it and judge whether "
+    "it is genuinely about THIS person's job search — i.e. an application confirmation, "
+    "a recruiter reaching out, an interview invite/scheduling, a job offer, or a "
+    "rejection. Newsletters, order receipts, bills, promotions, security alerts, "
+    "CI/CD or app notifications, and personal mail are NOT job-related, even if they "
+    "contain words like 'offer', 'application', or 'opportunity'. Reply with ONLY a "
+    "compact JSON object, no prose: "
+    '{"jobRelated":bool,"category":"interview"|"offer"|"rejection"|"recruiter_reply"'
+    '|"confirmation"|"other","company":str (the hiring company, or ""),"role":str,'
+    '"summary":str (one short sentence on what it is),"confidence":number 0-1}'
+)
+
+# Cheap pre-filter: only spend Bedrock on emails that plausibly touch a job search.
+_JOB_HINT = re.compile(
+    r"\b(?:appl(?:y|ied|ication|ying)|interview|recruit|recruiter|role|position|"
+    r"candidate|hiring|opportunity|résumé|resume|offer|job|career|screening|"
+    r"talent|onsite|assessment|coding|phone screen|hr team|next steps?)\b", re.I)
+_ATS = ("greenhouse", "lever.co", "ashbyhq", "workday", "myworkday", "icims",
+        "smartrecruiters", "jobvite", "taleo", "bamboohr", "workable")
 
 
 def handler(event, _ctx):
@@ -43,23 +69,72 @@ def handler(event, _ctx):
 
     messages = _fetch_recent(cred)
     seen = _existing_event_ids()   # idempotency: don't re-process the same email
-    linked, updated = 0, 0
+    linked, updated, ai_calls = 0, 0, 0
     for msg in messages:
-        category, confidence, _hits = classify(msg["subject"], msg["snippet"], msg["from"])
-        if category == "other":
-            continue
         eid = _eid(msg)
         if eid in seen:
             continue
+        # cheap pre-filter: skip obvious non-job mail without spending Bedrock
+        if not _maybe_job(msg):
+            continue
         seen.add(eid)
-        app_id = by_email.get(_addr(msg["from"]).lower()) or _match_company(msg, companies, apps)
+        ai_calls += 1
+        r = _ai_classify(msg)  # Bedrock reads the email; keyword fallback on error
+        category = r.get("category", "other")
+        if not r.get("jobRelated") or category == "other":
+            # record (deduped) so this email isn't re-read on the next scan
+            _write_event(eid, "unmatched", msg, "other", r.get("confidence", 0), "", r.get("summary", ""))
+            continue
+        app_id = (by_email.get(_addr(msg["from"]).lower())
+                  or _match_by_name(r.get("company"), apps)
+                  or _match_company(msg, companies, apps))
         action = _apply_to_app(app_id, category, msg) if app_id else ""
         if action:
             updated += 1
-        _write_event(eid, app_id, msg, category, confidence, action)
+        _write_event(eid, app_id, msg, category, r.get("confidence", 0.7), action, r.get("summary", ""))
         linked += 1
-    print(f"scanned {len(messages)} msgs, recorded {linked} new findings, auto-updated {updated} applications")
+    print(f"scanned {len(messages)} msgs, {ai_calls} AI reads, {linked} findings, {updated} auto-updates")
     return {"scanned": len(messages), "recorded": linked, "updated": updated, "configured": True}
+
+
+def _maybe_job(msg):
+    if _JOB_HINT.search(f"{msg.get('subject', '')} {msg.get('snippet', '')}"):
+        return True
+    dom = (msg.get("from", "").split("@")[-1] or "").lower()
+    return any(a in dom for a in _ATS)
+
+
+def _ai_classify(msg):
+    payload = {
+        "anthropic_version": "bedrock-2023-05-31", "max_tokens": 300,
+        "system": AI_CLASSIFY_SYSTEM,
+        "messages": [{"role": "user", "content": [{"type": "text",
+            "text": f"FROM: {msg.get('from', '')}\nSUBJECT: {msg.get('subject', '')}\n\nBODY:\n{(msg.get('snippet') or '')[:1500]}"}]}],
+    }
+    try:
+        resp = bedrock.invoke_model(modelId=BEDROCK_MODEL, body=json.dumps(payload))
+        text = json.loads(resp["body"].read())["content"][0]["text"]
+        return json.loads(_first_json(text))
+    except Exception as e:  # noqa: BLE001 — degrade to keyword classifier
+        print(f"ai_classify fell back to keywords ({type(e).__name__}: {e})")
+        cat, conf, _ = classify(msg.get("subject", ""), msg.get("snippet", ""), msg.get("from", ""))
+        return {"jobRelated": cat != "other", "category": cat, "company": "", "summary": msg.get("subject", ""), "confidence": conf}
+
+
+def _first_json(text):
+    s, e = text.find("{"), text.rfind("}")
+    return text[s:e + 1] if s != -1 and e != -1 else "{}"
+
+
+def _match_by_name(company, apps):
+    c = (company or "").strip().lower()
+    if len(c) < 2:
+        return None
+    for a in apps:
+        ac = (a.get("company") or "").strip().lower()
+        if ac and (c == ac or c in ac or ac in c):
+            return a["appId"]
+    return None
 
 
 # Status progression rank — auto-updates only advance forward (rejection/offer override).
@@ -108,7 +183,7 @@ def _fetch_recent(cred):
     return out
 
 
-def _write_event(eid, app_id, msg, category, confidence, action=""):
+def _write_event(eid, app_id, msg, category, confidence, action="", summary=""):
     ddb.put_item(TableName=EVENTS, Item={
         "eventId": {"S": eid},
         "appId": {"S": app_id or "unmatched"},
@@ -116,7 +191,7 @@ def _write_event(eid, app_id, msg, category, confidence, action=""):
             "from": msg["from"], "subject": msg["subject"],
             "snippet": msg["snippet"][:200], "category": category,
             "confidence": confidence, "receivedAt": msg["receivedAt"],
-            "appId": app_id or "unmatched", "action": action,
+            "appId": app_id or "unmatched", "action": action, "summary": summary,
         })},
     })
 

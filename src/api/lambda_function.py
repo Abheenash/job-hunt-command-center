@@ -173,9 +173,11 @@ def list_notifications(user):
     while True:
         r = ddb.scan(**kwargs)
         events += [json.loads(i["body"]["S"]) for i in r.get("Items", [])]
-        if "LastEvaluatedKey" not in r or len(events) > 300:
+        if "LastEvaluatedKey" not in r or len(events) > 500:
             break
         kwargs["ExclusiveStartKey"] = r["LastEvaluatedKey"]
+    # "other" rows are stored only for scan de-dup — never shown as findings
+    events = [e for e in events if e.get("category") and e.get("category") != "other"]
     events.sort(key=lambda e: e.get("receivedAt", 0), reverse=True)
     return _r(200, {"notifications": events[:50]})
 

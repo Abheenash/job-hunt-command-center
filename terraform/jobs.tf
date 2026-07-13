@@ -52,6 +52,14 @@ data "aws_iam_policy_document" "inbox_scan" {
     actions   = ["secretsmanager:GetSecretValue"]
     resources = [aws_secretsmanager_secret.email.arn]
   }
+  statement {
+    # AI email triage (Claude Haiku) — scoped to the one model + inference profile
+    actions = ["bedrock:InvokeModel"]
+    resources = [
+      "arn:aws:bedrock:*::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0",
+      "arn:aws:bedrock:*:${local.acct}:inference-profile/us.anthropic.claude-haiku-4-5-20251001-v1:0",
+    ]
+  }
 }
 
 resource "aws_iam_role_policy" "inbox_scan" {
