@@ -14,7 +14,41 @@ const fmtDate = (epoch) => { try { return new Date(epoch * 1000).toISOString().s
 
 let APPS = [];
 let editing = null, currentDetail = null;
-let filterStatus = "all", filterState = "", filterDate = "", filterOpt = false, query = "";
+let filterStatus = "all", filterState = "", filterDate = "", filterOpt = false, query = "", sortBy = "updated";
+
+function parseSalary(s) {
+  if (!s) return 0;
+  let max = 0, m;
+  const re = /(\d[\d,]*\.?\d*)\s*([kK])?/g;
+  while ((m = re.exec(s))) {
+    let n = parseFloat(m[1].replace(/,/g, ""));
+    if (m[2]) n *= 1000;
+    if (n > max) max = n; // top of the range as the representative figure
+  }
+  return max;
+}
+function sortApps(rows) {
+  const pay = (dir) => (a, b) => {
+    const pa = parseSalary(a.salary), pb = parseSalary(b.salary);
+    if (!pa && !pb) return 0;
+    if (!pa) return 1; if (!pb) return -1; // apps with no pay sort to the end
+    return dir === "high" ? pb - pa : pa - pb;
+  };
+  const PRIO = { High: 3, Medium: 2, Low: 1 };
+  const mp = (a) => (a.matchPercent != null ? a.matchPercent : -1);
+  const cmp = {
+    updated: (a, b) => (b.updatedAt || 0) - (a.updatedAt || 0),
+    added: (a, b) => (b.createdAt || 0) - (a.createdAt || 0),
+    company: (a, b) => (a.company || "").localeCompare(b.company || ""),
+    company_desc: (a, b) => (b.company || "").localeCompare(a.company || ""),
+    pay_high: pay("high"),
+    pay_low: pay("low"),
+    match: (a, b) => mp(b) - mp(a),
+    applied: (a, b) => (b.dateApplied || "").localeCompare(a.dateApplied || ""),
+    priority: (a, b) => (PRIO[b.priority] || 0) - (PRIO[a.priority] || 0),
+  };
+  return rows.slice().sort(cmp[sortBy] || cmp.updated);
+}
 
 // ---------- Cognito (no SDK) -----------------------------------------------
 async function cognito(target, body) {
@@ -120,7 +154,7 @@ function visible() {
 }
 
 function renderList() {
-  const rows = visible();
+  const rows = sortApps(visible());
   $("#f-clear").hidden = !(filterState || filterDate || filterOpt);
   $("#empty").hidden = APPS.length !== 0;
   $("#list").innerHTML = rows.map(card).join("");
@@ -484,6 +518,7 @@ $("#f-date").onchange = (e) => { filterDate = e.target.value; renderActivity(); 
 $("#f-opt").onchange = (e) => { filterOpt = e.target.checked; renderList(); };
 $("#f-clear").onclick = () => { filterState = ""; filterDate = ""; filterOpt = false; $("#f-state").value = ""; $("#f-date").value = ""; $("#f-opt").checked = false; renderActivity(); renderList(); renderStateFilter(); };
 $("#search").oninput = (e) => { query = e.target.value; currentDetail = null; showOnly("#list-view"); renderList(); };
+$("#sort").onchange = (e) => { sortBy = e.target.value; renderList(); };
 document.onkeydown = (e) => {
   if (e.key === "Escape") { if (!$("#edit-view").hidden) cancelEdit(); else if (!$("#detail-view").hidden) closeDetail(); }
   if (e.key === "/" && !$("#app").hidden && !["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName)) { e.preventDefault(); $("#search").focus(); }

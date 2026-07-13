@@ -90,7 +90,8 @@ textarea { resize: vertical; }
 main { flex: 1; min-width: 0; padding: 1.1rem 1.5rem 2rem; max-width: 1180px; }
 .page-head { display: flex; align-items: flex-start; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem; }
 .page-head h1 { margin: .2rem 0 .3rem; } .page-head .sub { color: var(--muted); font-size: .92rem; }
-.head-actions { margin-left: auto; display: flex; gap: .5rem; flex-wrap: wrap; }
+.head-actions { margin-left: auto; display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; }
+.sortsel { width: auto; font-size: .84rem; padding: .5rem .6rem; border-radius: 8px; color: var(--text); }
 
 /* stats */
 .grid { display: grid; gap: 1rem; }

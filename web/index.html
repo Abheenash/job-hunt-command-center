@@ -91,6 +91,17 @@
           <div class="page-head">
             <div><h1>Applications</h1><p class="sub">Every application, the résumé you sent, and where each one stands.</p></div>
             <div class="head-actions">
+              <select id="sort" class="sortsel" title="Sort applications" aria-label="Sort">
+                <option value="updated">Sort: recently updated</option>
+                <option value="added">Sort: recently added</option>
+                <option value="company">Company A–Z</option>
+                <option value="company_desc">Company Z–A</option>
+                <option value="pay_high">Pay: high → low</option>
+                <option value="pay_low">Pay: low → high</option>
+                <option value="match">Best résumé match</option>
+                <option value="applied">Date applied (newest)</option>
+                <option value="priority">Importance (high first)</option>
+              </select>
               <button id="activity-btn" class="btn">📅 By date</button>
               <button id="export" class="btn">⬇ CSV</button>
               <button id="add" class="btn primary">+ Log application</button>
