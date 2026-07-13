@@ -48,6 +48,15 @@ MATCH_SYSTEM = (
     'résumé],"summary":"1-2 sentence honest assessment and the single biggest gap"}'
 )
 
+ASK_SYSTEM = (
+    "You are the assistant for a personal job-application tracker. Answer the user's "
+    "question using ONLY their applications, provided as JSON. Be concise and specific "
+    "— name companies, statuses, and dates. If they ask to find or list applications, "
+    "pick the matching ones. Never invent applications or facts. Reply with ONLY a "
+    'compact JSON object: {"answer": str (plain text, concise, no markdown), '
+    '"appIds": [the appId values your answer references, most relevant first, max 12]}'
+)
+
 
 class NotFound(Exception):
     pass
@@ -82,6 +91,10 @@ def handler(event, _ctx):
         # /notifications  (classified inbox findings feed)
         if parts[:1] == ["notifications"] and method == "GET":
             return list_notifications(user)
+
+        # /ask  (natural-language Q&A over the user's applications)
+        if parts[:1] == ["ask"] and method == "POST":
+            return ask_ai(user, body)
 
         if parts[:1] == ["applications"]:
             if len(parts) == 1:
@@ -273,6 +286,46 @@ def _first_json(text):
     start = text.find("{")
     end = text.rfind("}")
     return text[start:end + 1] if start != -1 and end != -1 else "{}"
+
+
+def _user_apps(user):
+    items, kwargs = [], {"TableName": APPS, "FilterExpression": "userId = :u",
+                         "ExpressionAttributeValues": {":u": {"S": user}}}
+    while True:
+        resp = ddb.scan(**kwargs)
+        items += [json.loads(i["body"]["S"]) for i in resp.get("Items", [])]
+        if "LastEvaluatedKey" not in resp:
+            break
+        kwargs["ExclusiveStartKey"] = resp["LastEvaluatedKey"]
+    return items
+
+
+_ASK_FIELDS = ("appId", "company", "title", "status", "priority", "dateApplied", "location",
+               "state", "workMode", "salary", "source", "tags", "sponsors", "matchPercent",
+               "nextAction", "nextDue", "contactName", "requiredSkills", "confirmed")
+
+
+def ask_ai(user, body):
+    """Natural-language Q&A over the user's own applications (context-stuffed)."""
+    q = str((body or {}).get("question") or "").strip()
+    if len(q) < 2:
+        return _r(400, {"error": "ask a question"})
+    ctx = [{k: a.get(k) for k in _ASK_FIELDS if a.get(k) not in (None, "")}
+           for a in _user_apps(user)][:250]
+    payload = {
+        "anthropic_version": "bedrock-2023-05-31", "max_tokens": 700, "system": ASK_SYSTEM,
+        "messages": [{"role": "user", "content": [{"type": "text",
+            "text": f"Question: {q}\n\nMy applications (JSON):\n{json.dumps(ctx)}"}]}],
+    }
+    try:
+        resp = bedrock.invoke_model(modelId=BEDROCK_MODEL, body=json.dumps(payload))
+        text = json.loads(resp["body"].read())["content"][0]["text"]
+        out = json.loads(_first_json(text))
+    except Exception as e:  # noqa: BLE001
+        print(f"ask failed: {type(e).__name__}: {e}")
+        return _r(502, {"error": "couldn't answer that, try again"})
+    ids = [i for i in (out.get("appIds") or []) if isinstance(i, str)][:12]
+    return _r(200, {"answer": str(out.get("answer") or "")[:2000], "appIds": ids})
 
 
 def match_resume(user, app_id):

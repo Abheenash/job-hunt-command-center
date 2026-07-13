@@ -414,6 +414,29 @@ function renderNotifList() {
 }
 function togglePop(sel) { ["#acct-pop", "#notif-pop"].forEach((s) => { if (s !== sel) $(s).hidden = true; }); const p = $(sel); p.hidden = !p.hidden; }
 
+// ---------- Ask AI (natural-language over your applications) ----------------
+function aiBubble(role, html) {
+  const d = document.createElement("div");
+  d.className = "ai-msg " + role;
+  d.innerHTML = html;
+  $("#ai-log").appendChild(d); $("#ai-log").scrollTop = $("#ai-log").scrollHeight;
+  return d;
+}
+async function askAI(q) {
+  q = (q || "").trim(); if (!q) return;
+  $("#ai-chips").hidden = true;
+  aiBubble("me", esc(q));
+  const t = aiBubble("ai", `<span class="ai-typing">thinking…</span>`);
+  try {
+    const r = await api("POST", "/ask", { question: q });
+    const cards = (r.appIds || []).map((id) => APPS.find((a) => a.appId === id)).filter(Boolean);
+    t.innerHTML = esc(r.answer || "No answer.") + (cards.length
+      ? `<div class="ai-results">${cards.map((a) => `<button class="ai-result" data-id="${a.appId}"><b>${esc(a.company || "—")}</b> <span class="pill ${a.status}">${a.status}</span><span class="ai-rt">${esc(a.title || "")}</span></button>`).join("")}</div>` : "");
+    t.querySelectorAll(".ai-result").forEach((el) => (el.onclick = () => { $("#ai-panel").hidden = true; openDetail(el.dataset.id); }));
+  } catch (e) { t.innerHTML = esc(e.message || "Something went wrong."); }
+  $("#ai-log").scrollTop = $("#ai-log").scrollHeight;
+}
+
 // ---------- wiring ---------------------------------------------------------
 function fillStateSelects() { $("#state-select").innerHTML = `<option value="">—</option>` + US_STATES.map((s) => `<option>${s}</option>`).join(""); }
 
@@ -443,6 +466,10 @@ $("#acct-btn").onclick = (e) => { e.stopPropagation(); togglePop("#acct-pop"); }
 $("#notif-btn").onclick = (e) => { e.stopPropagation(); renderNotifList(); togglePop("#notif-pop"); };
 $("#notif-read").onclick = () => { localStorage.setItem(NOTIF_SEEN, String(Math.floor(Date.now() / 1000))); renderNotifBadge(); };
 $$("#views .view").forEach((b) => (b.onclick = () => { setView(b.dataset.v); closeDrawer(); }));
+$("#ai-fab").onclick = () => { const p = $("#ai-panel"); p.hidden = !p.hidden; if (!p.hidden) $("#ai-input").focus(); };
+$("#ai-close").onclick = () => ($("#ai-panel").hidden = true);
+$("#ai-form").onsubmit = (e) => { e.preventDefault(); const q = $("#ai-input").value; $("#ai-input").value = ""; askAI(q); };
+$$("#ai-chips .ai-chip").forEach((b) => (b.onclick = () => askAI(b.dataset.q)));
 document.addEventListener("click", (e) => { if (!e.target.closest(".pop-wrap")) { $("#acct-pop").hidden = true; $("#notif-pop").hidden = true; } });
 const closeDrawer = () => document.body.classList.remove("nav-open");
 $("#hamburger").onclick = () => document.body.classList.toggle("nav-open");

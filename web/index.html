@@ -154,6 +154,26 @@
       </main>
     </div>
 
+    <!-- ASK AI -->
+    <button id="ai-fab" class="ai-fab" aria-label="Ask AI about your applications">✨ Ask AI</button>
+    <section id="ai-panel" class="ai-panel" hidden aria-label="Ask AI">
+      <header class="ai-head">
+        <div><b>Ask about your applications</b><small>Claude · grounded in your tracker</small></div>
+        <button id="ai-close" class="ai-x" aria-label="Close">✕</button>
+      </header>
+      <div id="ai-log" class="ai-log"></div>
+      <div id="ai-chips" class="ai-chips">
+        <button class="ai-chip" data-q="Which applications are in the interview stage?">In interview</button>
+        <button class="ai-chip" data-q="Show me remote roles that sponsor OPT">Remote + OPT</button>
+        <button class="ai-chip" data-q="Which application has the best résumé match?">Best match</button>
+        <button class="ai-chip" data-q="Who should I follow up with first?">Follow up first</button>
+      </div>
+      <form id="ai-form" class="ai-form">
+        <input id="ai-input" type="text" placeholder="Ask about your applications…" autocomplete="off" />
+        <button class="ai-send" type="submit" aria-label="Ask">➤</button>
+      </form>
+    </section>
+
     <footer class="siteftr">
       <div class="ftr-left">
         <a href="https://abheenash.com" target="_blank" rel="noopener">↩ Portfolio</a>
