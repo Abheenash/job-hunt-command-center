@@ -376,6 +376,8 @@ async function autofill() {
 // ---------- résumé generator (JD -> tailored 2-page / 4-project résumé) ------
 let lastGen = null;
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
 async function generateResume() {
   const jd = $("#jd").value.trim();
   const out = $("#gen-out");
@@ -383,18 +385,38 @@ async function generateResume() {
   if (jd.length < 40) { out.innerHTML = `<p class="err">Paste a fuller job description first (a few lines).</p>`; return; }
   const f = $("#app-form");
   const btn = $("#gen-resume");
-  const model = $("#gen-model").value;
   btn.disabled = true;
-  out.innerHTML = `<p class="gen-loading">📄 ${model === "opus" ? "Opus" : "Sonnet"} is picking your best 4 projects and tailoring the résumé to this JD…</p>`;
+  out.innerHTML = `<p class="gen-loading">📄 Opus is rewriting your résumé for this JD — picking projects, tailoring bullets & skills… <span class="filenote">(~30–45s)</span></p>`;
   try {
-    const r = await api("POST", "/generate-resume", {
-      jd, model, coverLetter: $("#gen-cover").checked,
+    // Opus can exceed the API's 30s cap, so this is async: start a job, then poll.
+    const { jobId } = await api("POST", "/generate-resume", {
+      coverLetter: $("#gen-cover").checked, jd,
       company: f.company.value.trim(), role: f.title.value.trim(),
     });
+    if (!jobId) throw new Error("could not start generation");
+    let r = null;
+    for (let i = 0; i < 40; i++) { // ~40 * 3s = 120s ceiling
+      await sleep(3000);
+      const s = await api("GET", "/generate-resume?job=" + encodeURIComponent(jobId));
+      if (s.status === "ready") { r = s; break; }
+      if (s.status === "error") throw new Error(s.error || "generation failed");
+    }
+    if (!r) throw new Error("generation timed out — try again");
     lastGen = r;
     renderGenOut(r);
+    mergeCustomFields(r.customFields);
   } catch (e) { out.innerHTML = `<p class="err">${esc(e.message)}</p>`; }
   finally { btn.disabled = false; }
+}
+
+// Merge AI-suggested custom fields into the editor without clobbering the user's.
+function mergeCustomFields(suggested) {
+  if (!suggested || !suggested.length) return;
+  const have = new Set($$("#cf-rows .cf-row .cf-k").map((i) => i.value.trim().toLowerCase()));
+  suggested.forEach((c) => {
+    const k = (c.key || "").trim();
+    if (k && !have.has(k.toLowerCase())) { $("#cf-rows").appendChild(cfRow(k, c.value || "")); have.add(k.toLowerCase()); }
+  });
 }
 
 const gchips = (list, cls) => (list && list.length ? list.map((x) => `<span class="gchip ${cls}">${esc(x)}</span>`).join("") : `<span class="filenote">none</span>`);

@@ -1,27 +1,36 @@
 """Deterministic LaTeX renderer.
 
-The AI only returns a *selection* (which projects, bullet indices, skills order) plus
-tailored plain-text prose (summary, cover-letter body). This module renders that into
-compilable LaTeX using the fixed template + the vetted corpus strings — so the model
-can never emit broken LaTeX or invent facts, and the output compiles anywhere
-(the AWS badge is guarded by \\IfFileExists, so a missing PNG degrades gracefully).
+The AI returns tailored *plain-text* content (rewritten summary, skills, experience
+bullets, and per-project bullets) — never raw LaTeX. This module escapes it, applies
+a tiny safe **bold** markup, and wraps it in the fixed template + factual, non-editable
+sections (contact, education, certs). So the model gets full latitude to rewrite and
+reorder for the JD, but it can never emit broken LaTeX, and structure stays intact.
+Fabrication is prevented upstream by the prompt (corpus-only) — here we just render.
+Output compiles anywhere (the AWS badge is guarded by \\IfFileExists).
 """
+import re
+
 import profile as P
 
-# Characters that must be escaped when injecting AI plain-text prose into LaTeX.
 _TEX = {"\\": "\\textbackslash{}", "&": "\\&", "%": "\\%", "$": "\\$", "#": "\\#",
         "_": "\\_", "{": "\\{", "}": "\\}", "~": "\\textasciitilde{}", "^": "\\textasciicircum{}"}
 
 
 def tex_escape(s):
-    """Escape AI-authored plain text so it's safe to drop into LaTeX."""
+    """Escape AI plain text so it's safe to drop into LaTeX."""
     return "".join(_TEX.get(ch, ch) for ch in (s or ""))
+
+
+def _md(s):
+    """Escape, then convert a minimal, safe **bold** markup to \\textbf{}."""
+    out = tex_escape(s or "")
+    return re.sub(r"\*\*(.+?)\*\*", r"\\textbf{\1}", out)
 
 
 PREAMBLE = r"""%-------------------------
 % Auto-generated, JD-tailored résumé — Job Hunt Command Center.
 % Based on the Jake Gutierrez template. Every fact is drawn from the candidate's
-% real corpus; the AI only selected, ordered, and tailored the summary.
+% real corpus; the AI rewrote/reordered wording to fit the JD (no fabrication).
 %------------------------
 \documentclass[letterpaper,11pt]{article}
 \usepackage{latexsym}
@@ -90,42 +99,55 @@ def _education():
     return "\n".join(out)
 
 
-def _experience():
-    out = ["\\section{Experience}\n  \\resumeSubHeadingListStart"]
-    for x in P.EXPERIENCE:
-        out.append(f"    \\resumeSubheading\n      {{{x['company']}}}{{{x['loc']}}}\n      {{{x['title']}}}{{{x['date']}}}\n      \\resumeItemListStart")
-        for b in x["bullets"]:
-            out.append(f"        \\resumeItem{{{b}}}")
-        out.append("      \\resumeItemListEnd")
-    out.append("  \\resumeSubHeadingListEnd\n\\vspace{-12pt}")
-    return "\n".join(out)
+def _experience(ai_bullets):
+    """HCLTech header is factual; bullets are AI-rewritten (falls back to corpus)."""
+    x = P.EXPERIENCE[0]
+    bullets = [b for b in (ai_bullets or []) if b and b.strip()]
+    if not bullets:
+        bullets = x["bullets"]  # corpus is already LaTeX-safe
+        rendered = [f"        \\resumeItem{{{b}}}" for b in bullets]
+    else:
+        rendered = [f"        \\resumeItem{{{_md(b)}}}" for b in bullets]
+    body = "\n".join(rendered)
+    return ("\\section{Experience}\n  \\resumeSubHeadingListStart\n"
+            f"    \\resumeSubheading\n      {{{x['company']}}}{{{x['loc']}}}\n      {{{x['title']}}}{{{x['date']}}}\n"
+            f"      \\resumeItemListStart\n{body}\n      \\resumeItemListEnd\n"
+            "  \\resumeSubHeadingListEnd\n\\vspace{-12pt}")
 
 
-def _skills(order):
-    keys = [k for k in (order or []) if k in P.SKILLS] or list(P.SKILLS.keys())
-    lines = [f"     \\textbf{{{k}}}{{: {P.SKILLS[k]}}}" for k in keys]
+def _skills(ai_skills):
+    """ai_skills = [{category, items}] (rewritten/reordered). Falls back to corpus."""
+    lines = []
+    for s in (ai_skills or []):
+        cat, items = (s.get("category") or "").strip(), (s.get("items") or "").strip()
+        if cat and items:
+            lines.append(f"     \\textbf{{{tex_escape(cat)}}}{{: {tex_escape(items)}}}")
+    if not lines:
+        lines = [f"     \\textbf{{{k}}}{{: {P.SKILLS[k]}}}" for k in P.SKILLS]
     body = " \\\\\n".join(lines)
     return ("\\section{Technical Skills}\n \\begin{itemize}[leftmargin=0.15in, label={}]\n"
             f"    \\small{{\\item{{\n{body}\n    }}}}\n \\end{{itemize}}\n \\vspace{{-16pt}}")
 
 
-def _projects(selection):
+def _projects(ai_projects):
     out = ["\\section{Projects}\n    \\vspace{-5pt}\n    \\resumeSubHeadingListStart"]
-    for sel in selection:
-        p = P.project_by_id(sel["id"])
-        if not p:
-            continue
+    for pr in (ai_projects or []):
+        corp = P.project_by_id(pr.get("id")) or {}
+        name = pr.get("name") or corp.get("name") or pr.get("id", "")
+        tech = pr.get("tech") or corp.get("tech") or ""
+        # links always come from the trusted corpus, never the model
         links = []
-        if p.get("link_live"):
-            links.append(f"\\href{{{p['link_live']}}}{{\\underline{{Live}}}}")
-        if p.get("link_code"):
-            links.append(f"\\href{{{p['link_code']}}}{{\\underline{{Code}}}}")
+        if corp.get("link_live"):
+            links.append(f"\\href{{{corp['link_live']}}}{{\\underline{{Live}}}}")
+        if corp.get("link_code"):
+            links.append(f"\\href{{{corp['link_code']}}}{{\\underline{{Code}}}}")
         link_str = (" $\\cdot$ " + " / ".join(links)) if links else ""
-        out.append(f"      \\resumeProjectHeading\n          {{\\textbf{{{p['name']}}} $|$ \\emph{{{p['tech']}}}{link_str}}}\n          \\resumeItemListStart")
-        idxs = sel.get("bulletIdx") or list(range(len(p["bullets"])))
-        for i in idxs:
-            if 0 <= i < len(p["bullets"]):
-                out.append(f"            \\resumeItem{{{p['bullets'][i]}}}")
+        out.append(f"      \\resumeProjectHeading\n          {{\\textbf{{{_md(name)}}} $|$ \\emph{{{tex_escape(tech)}}}{link_str}}}\n          \\resumeItemListStart")
+        bl = [b for b in (pr.get("bullets") or []) if b and b.strip()]
+        if not bl and corp.get("bullets"):
+            out += [f"            \\resumeItem{{{b}}}" for b in corp["bullets"]]
+        else:
+            out += [f"            \\resumeItem{{{_md(b)}}}" for b in bl]
         out.append("          \\resumeItemListEnd\n          \\vspace{-13pt}")
     out.append("\n    \\resumeSubHeadingListEnd\n\\vspace{-15pt}")
     return "\n".join(out)
@@ -137,18 +159,19 @@ def _certs():
             f"    \\small{{\\item{{\n{body}\n    }}}}\n \\end{{itemize}}\n \\vspace{{-16pt}}")
 
 
-def render_resume(selection):
-    """selection = {summary, skillsOrder:[...], projects:[{id,bulletIdx}]}."""
-    summary = tex_escape(selection.get("summary") or "").strip() or P.SUMMARY_BASE
+def render_resume(sel):
+    """sel = {summary, skills:[{category,items}], experienceBullets:[str],
+             projects:[{id,name,tech,bullets:[str]}]}. All AI-rewritten, corpus-only."""
+    summary = _md((sel.get("summary") or "").strip()) or P.SUMMARY_BASE
     parts = [
         PREAMBLE,
         "\\begin{document}\n",
         _header(),
         "\n%-----------SUMMARY-----------\n\\section{Summary}\n\\small{\n" + summary + "\n}\n\\vspace{-6pt}\n",
         _education(),
-        _experience(),
-        _skills(selection.get("skillsOrder")),
-        _projects(selection.get("projects") or []),
+        _experience(sel.get("experienceBullets")),
+        _skills(sel.get("skills")),
+        _projects(sel.get("projects") or []),
         _certs(),
         "\n\\end{document}\n",
     ]
@@ -166,9 +189,8 @@ COVER_PREAMBLE = r"""\documentclass[letterpaper,11pt]{article}
 
 def render_cover_letter(company, role, body_paragraphs):
     c = P.CONTACT
-    paras = "\n\n".join(tex_escape(p).strip() for p in (body_paragraphs or []) if p and p.strip())
+    paras = "\n\n".join(_md(p).strip() for p in (body_paragraphs or []) if p and p.strip())
     company_s = tex_escape(company or "the team")
-    role_s = tex_escape(role or "the role")
     return (
         COVER_PREAMBLE + "\\begin{document}\n"
         f"\\textbf{{\\large {c['name']}}}\\\\\n{c['location']} $|$ {c['phone']} $|$ "

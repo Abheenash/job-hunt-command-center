@@ -41,9 +41,14 @@ data "aws_iam_policy_document" "resume_gen" {
     ]
   }
   statement {
-    sid       = "SnapshotToDocs"
-    actions   = ["s3:PutObject"]
+    sid       = "SnapshotAndReadResults"
+    actions   = ["s3:PutObject", "s3:GetObject"]
     resources = ["${aws_s3_bucket.docs.arn}/generated/*"]
+  }
+  statement {
+    sid       = "SelfInvokeAsync" # Opus can exceed API GW's 30s cap → async worker
+    actions   = ["lambda:InvokeFunction"]
+    resources = ["arn:aws:lambda:${var.region}:${local.acct}:function:${local.name}-resume-gen"]
   }
 }
 
@@ -60,12 +65,13 @@ resource "aws_lambda_function" "resume_gen" {
   handler          = "lambda_function.handler"
   filename         = data.archive_file.resume_gen.output_path
   source_code_hash = data.archive_file.resume_gen.output_base64sha256
-  timeout          = 60 # generation is small, but Opus + a long JD can be slow
+  timeout          = 120 # async worker: Opus full-rewrite runs ~30-45s
   memory_size      = 256
   tracing_config { mode = "Active" }
   environment {
     variables = {
-      DOCS_BUCKET = aws_s3_bucket.docs.bucket
+      DOCS_BUCKET        = aws_s3_bucket.docs.bucket
+      SELF_FUNCTION_NAME = "${local.name}-resume-gen"
     }
   }
   tags = local.tags
@@ -82,6 +88,15 @@ resource "aws_apigatewayv2_integration" "resume_gen" {
 resource "aws_apigatewayv2_route" "resume_gen" {
   api_id             = aws_apigatewayv2_api.api.id
   route_key          = "POST /generate-resume"
+  target             = "integrations/${aws_apigatewayv2_integration.resume_gen.id}"
+  authorization_type = "JWT"
+  authorizer_id      = aws_apigatewayv2_authorizer.jwt.id
+}
+
+# Poll endpoint: the browser starts a job (POST) then polls this (GET ?job=<id>).
+resource "aws_apigatewayv2_route" "resume_gen_status" {
+  api_id             = aws_apigatewayv2_api.api.id
+  route_key          = "GET /generate-resume"
   target             = "integrations/${aws_apigatewayv2_integration.resume_gen.id}"
   authorization_type = "JWT"
   authorizer_id      = aws_apigatewayv2_authorizer.jwt.id
