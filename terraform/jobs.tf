@@ -48,8 +48,13 @@ data "aws_iam_policy_document" "nudge" {
     resources = [aws_dynamodb_table.applications.arn]
   }
   statement {
-    actions   = ["ses:SendEmail"]
-    resources = ["arn:aws:ses:${var.region}:${local.acct}:identity/abheenash.com"]
+    # In the SES sandbox, authorization is checked against BOTH the sender domain
+    # identity and the (verified) recipient identity — so grant both.
+    actions = ["ses:SendEmail"]
+    resources = [
+      "arn:aws:ses:${var.region}:${local.acct}:identity/abheenash.com",
+      "arn:aws:ses:${var.region}:${local.acct}:identity/${var.owner_email}",
+    ]
   }
 }
 
@@ -94,4 +99,83 @@ resource "aws_lambda_permission" "nudge" {
   function_name = aws_lambda_function.nudge.function_name
   principal     = "events.amazonaws.com"
   source_arn    = aws_cloudwatch_event_rule.nudge.arn
+}
+
+# --- weekly digest Lambda -----------------------------------------------------
+
+data "archive_file" "digest" {
+  type        = "zip"
+  source_dir  = "${path.module}/../src/digest"
+  output_path = "${path.module}/build/digest.zip"
+}
+
+resource "aws_iam_role" "digest" {
+  name               = "${local.name}-digest-role"
+  assume_role_policy = data.aws_iam_policy_document.lambda_assume.json
+  tags               = local.tags
+}
+
+resource "aws_iam_role_policy_attachment" "digest_basic" {
+  role       = aws_iam_role.digest.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+data "aws_iam_policy_document" "digest" {
+  statement {
+    actions   = ["dynamodb:Scan"]
+    resources = [aws_dynamodb_table.applications.arn]
+  }
+  statement {
+    # In the SES sandbox, authorization is checked against BOTH the sender domain
+    # identity and the (verified) recipient identity — so grant both.
+    actions = ["ses:SendEmail"]
+    resources = [
+      "arn:aws:ses:${var.region}:${local.acct}:identity/abheenash.com",
+      "arn:aws:ses:${var.region}:${local.acct}:identity/${var.owner_email}",
+    ]
+  }
+}
+
+resource "aws_iam_role_policy" "digest" {
+  name   = "${local.name}-digest-policy"
+  role   = aws_iam_role.digest.id
+  policy = data.aws_iam_policy_document.digest.json
+}
+
+resource "aws_lambda_function" "digest" {
+  function_name    = "${local.name}-digest"
+  role             = aws_iam_role.digest.arn
+  runtime          = "python3.12"
+  handler          = "lambda_function.handler"
+  filename         = data.archive_file.digest.output_path
+  source_code_hash = data.archive_file.digest.output_base64sha256
+  timeout          = 30
+  environment {
+    variables = {
+      APPS_TABLE  = aws_dynamodb_table.applications.name
+      SES_SENDER  = "no-reply@abheenash.com"
+      OWNER_EMAIL = var.owner_email
+      DASH_URL    = "https://${var.domain}"
+    }
+  }
+  tags = local.tags
+}
+
+resource "aws_cloudwatch_event_rule" "digest" {
+  name                = "${local.name}-digest"
+  schedule_expression = "cron(0 13 ? * MON *)" # Mondays 13:00 UTC
+  tags                = local.tags
+}
+
+resource "aws_cloudwatch_event_target" "digest" {
+  rule = aws_cloudwatch_event_rule.digest.name
+  arn  = aws_lambda_function.digest.arn
+}
+
+resource "aws_lambda_permission" "digest" {
+  statement_id  = "AllowEventBridge"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.digest.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.digest.arn
 }

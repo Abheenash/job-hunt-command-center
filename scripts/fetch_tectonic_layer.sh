@@ -10,3 +10,8 @@ echo "fetching $URL"
 curl -sL "$URL" | tar xz -C "$DEST"
 chmod +x "$DEST/tectonic"
 echo "tectonic ready at $DEST/tectonic"
+
+# Seed the offline package cache so Lambda cold-starts skip the network fetch.
+# (Compile any .tex once locally with this tectonic, then copy its cache dir here.)
+CACHE="$(ls -d "$HOME/Library/Caches/Tectonic" "$HOME/.cache/Tectonic" 2>/dev/null | head -1)"
+if [ -n "$CACHE" ]; then rm -rf terraform/layers/tectonic/cache; cp -R "$CACHE" terraform/layers/tectonic/cache; echo "seeded cache from $CACHE"; fi

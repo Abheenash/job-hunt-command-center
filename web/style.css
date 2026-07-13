@@ -342,3 +342,13 @@ main { flex: 1; min-width: 0; padding: 1.1rem 1.5rem 2rem; max-width: 1180px; }
 .rub-bar i { display: block; height: 100%; background: var(--link); border-radius: 999px; }
 .rub-sc { text-align: right; font-variant-numeric: tabular-nums; }
 .ats-ok { color: #037f0c; } .ats-lo { color: #b3341f; }
+.an-funnel { display: grid; gap: 5px; margin-bottom: 12px; max-width: 460px; }
+.an-row { display: grid; grid-template-columns: 90px 1fr 92px; align-items: center; gap: .5rem; font-size: .82rem; }
+.an-k { color: var(--muted); }
+.an-bar { background: #e9ebed; border-radius: 999px; height: 10px; overflow: hidden; }
+.an-bar i { display: block; height: 100%; background: var(--link); border-radius: 999px; }
+.an-v { text-align: right; font-variant-numeric: tabular-nums; }
+.an-h { margin: 14px 0 6px; font-size: .9rem; }
+.an-tbl { border-collapse: collapse; font-size: .82rem; }
+.an-tbl th, .an-tbl td { text-align: left; padding: 4px 16px 4px 0; border-bottom: 1px solid var(--border-soft); }
+.an-tbl th { color: var(--muted); font-weight: 600; }

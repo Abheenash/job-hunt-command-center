@@ -69,6 +69,12 @@ jobs:
       - name: Résumé renderer tests
         working-directory: src/resume_gen
         run: python -m pytest -q
+      - name: Scanner tests
+        working-directory: src/scanner
+        run: python -m pytest -q
+      - name: Enrich tests
+        working-directory: src/enrich
+        run: python -m pytest -q
 
   validate:
     name: Terraform validate

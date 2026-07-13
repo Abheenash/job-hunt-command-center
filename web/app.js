@@ -308,13 +308,15 @@ function matchResult(a) {
   const p = a.matchPercent || 0;
   const cls = p >= 75 ? "good" : p >= 50 ? "ok" : "low";
   const list = (arr, sym) => (arr || []).map((m) => `<li>${sym} ${esc(m)}</li>`).join("");
+  const atsOk = (a.atsScore != null && a.atsScore >= 75);
+  const ats = a.atsScore != null ? `<div class="filenote" style="margin-top:.4rem">ATS keyword match · <b class="${atsOk ? "ats-ok" : "ats-lo"}">${a.atsScore}%</b> ${atsOk ? "✓" : "(aim ≥75%)"}</div>` : "";
   return `<div class="match ${cls}">
-      <div class="match-score"><b>${p}%</b><span>fit</span></div>
-      <div class="match-main"><div class="match-bar"><i style="width:${p}%"></i></div><p>${esc(a.matchSummary || "")}</p></div>
+      <div class="match-score"><b>${p}%</b><span>weighted fit</span></div>
+      <div class="match-main"><div class="match-bar"><i style="width:${p}%"></i></div><p>${esc(a.matchSummary || "")}</p>${breakdownHtml(a.scoreBreakdown)}${ats}</div>
     </div>
     ${(a.matchMatched || []).length || (a.matchMissing || []).length ? `<div class="match-lists">
       <div class="match-good"><h4>✓ Strengths</h4><ul>${list(a.matchMatched, "")}</ul></div>
-      <div class="match-gap"><h4>△ Gaps to address</h4><ul>${list(a.matchMissing, "")}</ul></div>
+      <div class="match-gap"><h4>△ Missing keywords</h4><ul>${list(a.matchMissing, "")}</ul></div>
     </div>` : ""}
     <button class="btn sm" id="d-match-btn">↻ Re-run</button> <span id="d-match-msg" class="filenote"></span>`;
 }
@@ -391,7 +393,7 @@ async function generateResume() {
   try {
     // Opus can exceed the API's 30s cap, so this is async: start a job, then poll.
     const { jobId } = await api("POST", "/generate-resume", {
-      coverLetter: $("#gen-cover").checked, jd,
+      coverLetter: $("#gen-cover").checked, jd, template: $("#gen-template").value,
       company: f.company.value.trim(), role: f.title.value.trim(),
     });
     if (!jobId) throw new Error("could not start generation");
@@ -569,6 +571,42 @@ function exportCsv() {
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
+// ---------- conversion analytics -------------------------------------------
+const _RANK = { applied: 1, screen: 2, interview: 3, offer: 4, rejected: 1, ghosted: 1 };
+function _maxStage(a) {
+  // best stage reached: current status, or any stage its timeline mentions (so a
+  // now-rejected app that was interviewed still counts toward the interview stage)
+  let r = _RANK[a.status] || 1;
+  (a.timeline || []).forEach((t) => {
+    const e = (t.event || "").toLowerCase();
+    if (e.includes("offer")) r = Math.max(r, 4);
+    else if (e.includes("interview")) r = Math.max(r, 3);
+    else if (e.includes("screen")) r = Math.max(r, 2);
+  });
+  return r;
+}
+function renderAnalytics() {
+  const el = $("#analytics"); const n = APPS.length;
+  if (!n) { el.innerHTML = `<div class="container-head">📊 Analytics</div><div class="container-body"><p class="muted">Log some applications to see analytics.</p></div>`; return; }
+  const pct = (a, b) => (b ? Math.round(100 * a / b) : 0);
+  const atLeast = (lvl) => APPS.filter((a) => _maxStage(a) >= lvl).length;
+  const applied = n, screen = atLeast(2), interview = atLeast(3), offer = atLeast(4);
+  const funnel = [["Applied", applied, 100], ["Screen+", screen, pct(screen, applied)], ["Interview+", interview, pct(interview, applied)], ["Offer", offer, pct(offer, applied)]];
+  const bySrc = {};
+  APPS.forEach((a) => { const s = a.source || "—"; (bySrc[s] = bySrc[s] || { n: 0, resp: 0, intv: 0 }); bySrc[s].n++; if (["screen", "interview", "offer", "rejected"].includes(a.status)) bySrc[s].resp++; if (_maxStage(a) >= 3) bySrc[s].intv++; });
+  const scored = APPS.filter((a) => a.matchPercent != null);
+  const avg = (arr) => (arr.length ? Math.round(arr.reduce((x, y) => x + y, 0) / arr.length) : null);
+  const iAvg = avg(scored.filter((a) => _maxStage(a) >= 3).map((a) => a.matchPercent));
+  const nAvg = avg(scored.filter((a) => _maxStage(a) < 3).map((a) => a.matchPercent));
+  el.innerHTML = `<div class="container-head">📊 Analytics <span class="filenote">— best stage reached per application</span></div><div class="container-body">
+    <div class="an-funnel">${funnel.map(([k, v, p]) => `<div class="an-row"><span class="an-k">${k}</span><span class="an-bar"><i style="width:${Math.max(2, p)}%"></i></span><span class="an-v">${v} · ${p}%</span></div>`).join("")}</div>
+    <h4 class="an-h">By source</h4>
+    <table class="an-tbl"><tr><th>Source</th><th>Apps</th><th>Response</th><th>Interview</th></tr>
+    ${Object.entries(bySrc).sort((a, b) => b[1].n - a[1].n).map(([s, d]) => `<tr><td>${esc(s)}</td><td>${d.n}</td><td>${pct(d.resp, d.n)}%</td><td>${pct(d.intv, d.n)}%</td></tr>`).join("")}</table>
+    ${scored.length >= 2 ? `<h4 class="an-h">Résumé match vs. outcome</h4><p class="filenote">Avg match of apps that reached interview: <b>${iAvg != null ? iAvg + "%" : "—"}</b> · that didn't: <b>${nAvg != null ? nAvg + "%" : "—"}</b>${(iAvg != null && nAvg != null && iAvg > nAvg) ? " — higher-match résumés are converting better ✓" : ""}</p>` : ""}
+  </div>`;
+}
+
 // ---------- settings: change password --------------------------------------
 async function changePassword() {
   const msg = $("#pw-msg"); msg.className = "err"; msg.textContent = "";
@@ -666,6 +704,7 @@ $("#cf-add").onclick = () => $("#cf-rows").appendChild(cfRow());
 $("#app-form").onsubmit = saveApp;
 $("#export").onclick = exportCsv;
 $("#activity-btn").onclick = () => ($("#activity").hidden = !$("#activity").hidden);
+$("#analytics-btn").onclick = () => { const a = $("#analytics"); a.hidden = !a.hidden; if (!a.hidden) renderAnalytics(); };
 $("#f-state").onchange = (e) => { filterState = e.target.value; renderList(); };
 $("#f-date").onchange = (e) => { filterDate = e.target.value; renderActivity(); renderList(); };
 $("#f-opt").onchange = (e) => { filterOpt = e.target.checked; renderList(); };

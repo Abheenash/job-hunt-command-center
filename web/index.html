@@ -103,11 +103,13 @@
                 <option value="priority">Importance (high first)</option>
               </select>
               <button id="activity-btn" class="btn">📅 By date</button>
+              <button id="analytics-btn" class="btn">📊 Analytics</button>
               <button id="export" class="btn">⬇ CSV</button>
               <button id="add" class="btn primary">+ Log application</button>
             </div>
           </div>
           <div class="grid widgets" id="stats"></div>
+          <section id="analytics" class="container" hidden></section>
           <section id="activity" class="container" hidden></section>
           <section id="list" class="grid projects-grid"></section>
           <p id="empty" class="empty" hidden>No applications yet. Hit <b>+ Log application</b> to start tracking.</p>
@@ -131,6 +133,11 @@
               <button type="button" id="autofill" class="btn">✨ Autofill fields</button>
               <button type="button" id="gen-resume" class="btn primary">📄 Generate tailored résumé</button>
               <span class="gen-badge" title="Written by Claude Opus">Opus</span>
+              <select id="gen-template" class="sortsel" title="Résumé style">
+                <option value="standard">Style: Standard</option>
+                <option value="modern">Style: Modern</option>
+                <option value="compact">Style: Compact</option>
+              </select>
               <label class="check2 inline"><input type="checkbox" id="gen-cover" /> + cover letter</label>
               <span id="autofill-status" class="filenote"></span>
             </div>

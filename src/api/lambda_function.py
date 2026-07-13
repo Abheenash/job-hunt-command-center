@@ -43,13 +43,24 @@ JD_SYSTEM = (
 )
 
 MATCH_SYSTEM = (
-    "You are a technical recruiter comparing a candidate's résumé to a job "
-    "description. Judge fit honestly and strictly from the two texts. Reply with "
-    "ONLY a compact JSON object, no prose, no code fences: "
-    '{"matchPercent":int 0-100,"matched":[up to 8 requirements the résumé clearly '
-    'satisfies],"missing":[up to 8 important JD requirements absent or weak in the '
-    'résumé],"summary":"1-2 sentence honest assessment and the single biggest gap"}'
+    "You are a technical recruiter scoring a candidate's résumé against a job description "
+    "using a fixed rubric. Judge strictly from the two texts. Score each of these EXACT "
+    "dimensions 0-100: 'Required skills' (JD must-haves the résumé evidences), 'Preferred "
+    "skills' (nice-to-haves), 'Experience & seniority' (years/level/scope fit), 'Domain "
+    "relevance' (role/industry fit), 'ATS keywords' (share of the JD's key hard terms "
+    "present in the résumé). Also list the JD's important hard keywords present vs absent. "
+    "Reply with ONLY a compact JSON object, no prose, no code fences: "
+    '{"scoreBreakdown":[{"dimension":str,"score":int,"note":str}],'
+    '"matched":[up to 8 requirements the résumé clearly satisfies],'
+    '"atsCovered":[str],"atsMissing":[str],'
+    '"summary":"1-2 sentence honest assessment and the single biggest gap"}'
 )
+
+# Same weighted rubric as the résumé generator — one scoring standard across the app.
+MATCH_WEIGHTS = [
+    ("Required skills", 40), ("Preferred skills", 15), ("Experience & seniority", 20),
+    ("Domain relevance", 15), ("ATS keywords", 10),
+]
 
 ASK_SYSTEM = (
     "You are the assistant for a personal job-application tracker. Answer the user's "
@@ -381,11 +392,28 @@ def match_resume(user, app_id):
         print(f"match failed: {type(e).__name__}: {e}")
         return _r(502, {"error": "match check failed, try again"})
 
+    # weighted rubric (computed here, not the model's number) + ATS keyword rate
+    by_dim = {str(d.get("dimension", "")).strip().lower(): d for d in (result.get("scoreBreakdown") or [])}
+    breakdown, wsum, tot = [], 0, 0
+    for dim, w in MATCH_WEIGHTS:
+        sc = max(0, min(100, int((by_dim.get(dim.lower()) or {}).get("score", 0) or 0)))
+        breakdown.append({"dimension": dim, "weight": w, "score": sc,
+                          "note": str((by_dim.get(dim.lower()) or {}).get("note", ""))[:120]})
+        wsum += sc * w
+        tot += w
+    cov, miss = result.get("atsCovered", []), result.get("atsMissing", [])
+    result["matchPercent"] = round(wsum / tot) if tot else 0
+    result["scoreBreakdown"] = breakdown
+    result["atsScore"] = round(100 * len(cov) / max(1, len(cov) + len(miss)))
+    result["missing"] = miss
+
     # persist a lightweight summary on the record so cards/detail can show it
-    item["matchPercent"] = int(result.get("matchPercent") or 0)
+    item["matchPercent"] = result["matchPercent"]
     item["matchSummary"] = str(result.get("summary") or "")[:400]
     item["matchMatched"] = result.get("matched") or []
-    item["matchMissing"] = result.get("missing") or []
+    item["matchMissing"] = miss
+    item["scoreBreakdown"] = breakdown
+    item["atsScore"] = result["atsScore"]
     now = int(time.time())
     item["matchedAt"] = now
     item["updatedAt"] = now

@@ -166,7 +166,8 @@ def _start_job(event):
         return _resp(400, {"error": "Paste a fuller job description (at least a few lines)."})
     job = uuid.uuid4().hex
     params = {"jd": jd, "coverLetter": bool(body.get("coverLetter")),
-              "company": (body.get("company") or "").strip(), "role": (body.get("role") or "").strip()}
+              "company": (body.get("company") or "").strip(), "role": (body.get("role") or "").strip(),
+              "template": body.get("template") if body.get("template") in T.TEMPLATES else "standard"}
     lam.invoke(FunctionName=SELF, InvocationType="Event",
                Payload=json.dumps({"_job": job, "params": params}).encode("utf-8"))
     return _resp(202, {"jobId": job, "status": "pending"})
@@ -212,6 +213,7 @@ def _run_job(job, params, ctx):
     want_cover = bool(params.get("coverLetter"))
     company = (params.get("company") or "").strip()
     role = (params.get("role") or "").strip()
+    template = params.get("template") if params.get("template") in T.TEMPLATES else "standard"
     extras = _load_extras()
 
     user = (
@@ -230,7 +232,7 @@ def _run_job(job, params, ctx):
         _write_result(job, {"status": "error", "error": "The model could not generate a résumé. Try again."})
         return {"ok": False}
 
-    resume_tex = T.render_resume(sel)
+    resume_tex = T.render_resume(sel, template)
     cover_tex = T.render_cover_letter(company, role, sel["coverLetter"]) if (want_cover and sel.get("coverLetter")) else None
     selected = [{"id": s.get("id"), "name": _plain((P.project_by_id(s.get("id")) or {}).get("name", s.get("id", "")))}
                 for s in (sel.get("projects") or [])]
@@ -266,7 +268,7 @@ def _run_job(job, params, ctx):
 
     # phase 2: best-effort server-side PDF with length auto-fit (never fatal)
     try:
-        pdf, pages, final_tex = _compile_autofit(sel)
+        pdf, pages, final_tex = _compile_autofit(sel, template)
         if pdf:
             s3.put_object(Bucket=DOCS_BUCKET, Key=f"generated/{job}/resume.pdf", Body=pdf, ContentType="application/pdf")
             result["pdfUrl"] = _presign(f"generated/{job}/resume.pdf")
@@ -291,8 +293,23 @@ def _run_job(job, params, ctx):
 
 
 # ---------- LaTeX compile + length auto-fit -----------------------------------
+def _seed_cache():
+    """Copy the bundled tectonic package cache (in the layer, read-only /opt) into
+    writable /tmp on cold start, so compiles skip the slow network bundle fetch.
+    Best-effort: if it's missing, tectonic just fetches from the network as before."""
+    dst = "/tmp/tct-cache"
+    src = "/opt/cache"
+    if not os.path.isdir(dst) and os.path.isdir(src):
+        try:
+            shutil.copytree(src, dst)
+            print("seeded tectonic cache from layer")
+        except Exception as e:  # noqa: BLE001
+            print(f"cache seed skipped: {type(e).__name__}: {e}")
+
+
 def _compile(tex, name):
     """Compile one .tex with tectonic. Returns (pdf_bytes|None, pages|None, tex)."""
+    _seed_cache()
     work = "/tmp/tex"
     os.makedirs(work, exist_ok=True)
     src = os.path.join(os.path.dirname(__file__), BADGE_PNG)
@@ -324,13 +341,13 @@ def _pages(logpath, pdf):
     return len(re.findall(rb"/Type\s*/Page[^s]", pdf)) or None  # fallback
 
 
-def _compile_autofit(sel):
+def _compile_autofit(sel, template="standard"):
     """Compile; if >2 pages, trim the least-important bullet and recompile (<=5x)."""
-    tex = T.render_resume(sel)
+    tex = T.render_resume(sel, template)
     pdf, pages, _ = _compile(tex, "resume")
     tries = 0
     while pdf and pages and pages > 2 and tries < 5 and _trim(sel):
-        tex = T.render_resume(sel)
+        tex = T.render_resume(sel, template)
         pdf, pages, _ = _compile(tex, "resume")
         tries += 1
     return pdf, pages, tex
