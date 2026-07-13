@@ -22,6 +22,7 @@ import subprocess
 import uuid
 
 import boto3
+from botocore.exceptions import ClientError
 
 import profile as P
 import templates as T
@@ -36,7 +37,25 @@ EXTRA_SKILLS_KEY = "profile/extra-skills.json"
 TECTONIC = "/opt/bin/tectonic"
 BADGE_PNG = "aws-certified-solutions-architect-associate.png"
 
-MODEL = "us.anthropic.claude-opus-4-5-20251101-v1:0"
+# Primary = latest Opus; auto-fall-back to 4.5 if 4.8 access hasn't propagated yet,
+# so generation never breaks and upgrades itself the moment 4.8 is granted.
+MODEL = "us.anthropic.claude-opus-4-8"
+MODEL_FALLBACK = "us.anthropic.claude-opus-4-5-20251101-v1:0"
+
+
+def _invoke_opus(payload):
+    """Try Opus 4.8, fall back to 4.5 only on an access-not-granted error."""
+    body = json.dumps(payload)
+    for model_id, tag in ((MODEL, "opus-4.8"), (MODEL_FALLBACK, "opus-4.5")):
+        try:
+            resp = bedrock.invoke_model(modelId=model_id, body=body)
+            return json.loads(resp["body"].read())["content"][0]["text"], tag
+        except ClientError as e:
+            if e.response.get("Error", {}).get("Code") == "AccessDeniedException" and model_id != MODEL_FALLBACK:
+                print(f"{model_id} not accessible yet — falling back to {MODEL_FALLBACK}")
+                continue
+            raise
+    raise RuntimeError("no Opus model available")
 
 SYSTEM = (
     "You are an expert technical résumé writer tailoring ONE candidate's résumé to ONE "
@@ -204,8 +223,7 @@ def _run_job(job, params, ctx):
     payload = {"anthropic_version": "bedrock-2023-05-31", "max_tokens": 4096, "temperature": 0.3,
                "system": SYSTEM, "messages": [{"role": "user", "content": [{"type": "text", "text": user}]}]}
     try:
-        resp = bedrock.invoke_model(modelId=MODEL, body=json.dumps(payload))
-        text = json.loads(resp["body"].read())["content"][0]["text"]
+        text, model_tag = _invoke_opus(payload)
         sel = json.loads(_first_json(text))
     except Exception as e:  # noqa: BLE001
         print(f"generate failed: {type(e).__name__}: {e}")
@@ -233,7 +251,7 @@ def _run_job(job, params, ctx):
     ats_score = round(100 * len(cov) / max(1, len(cov) + len(miss)))
 
     result = {
-        "status": "ready", "model": "opus", "pdfStatus": "compiling", "jobId": job,
+        "status": "ready", "model": model_tag, "pdfStatus": "compiling", "jobId": job,
         "resumeLatex": resume_tex, "coverLetterLatex": cover_tex,
         "matchPercent": match_percent, "scoreBreakdown": breakdown,
         "atsScore": ats_score, "matched": sel.get("matched", []),
