@@ -1,19 +1,24 @@
-"""resume-gen Lambda — POST /generate-resume.
+"""resume-gen Lambda — JD -> tailored résumé (LaTeX + best-effort PDF), Opus-only.
 
-Given a pasted JD, Claude Opus rewrites the candidate's résumé to fit it: it picks
-the 4 best projects, rewrites the summary / skills / experience / project bullets to
-emphasize JD-relevant angles, reorders skills, scores the fit, and suggests custom
-fields to tag the application with. The Lambda renders the rewritten plain text into
-compilable LaTeX (résumé + optional cover letter), snapshots it to versioned S3, and
-returns everything for the portal.
+Routes (all behind the Cognito JWT authorizer):
+  POST /generate-resume        -> start an async job, returns {jobId}
+  GET  /generate-resume?job=.. -> poll job status / result
+  GET  /profile-skills         -> list candidate-confirmed extra skills
+  POST /profile-skills {skill} -> add one (from an ATS "I have this" click)
 
-Honesty guardrail (enforced in the prompt): the model may rewrite and reorder freely
-but ONLY using facts, skills, tools, and metrics already in the corpus (profile.py).
-It never invents. Anything the JD wants that the candidate lacks goes to 'gaps'.
+Async because Opus full-rewrite + a server-side LaTeX compile exceed API Gateway's
+30s cap. The worker runs two phases so the browser sees results fast:
+  1. Opus rewrites -> render LaTeX -> write result.json (status=ready, pdfStatus=compiling)
+  2. tectonic compiles the PDF with length auto-fit (trim to <=2 pages) -> update result.json
+
+Honesty guardrail: the model rewrites/reorders but only from the corpus (profile.py)
+plus skills the user explicitly confirmed they have. It never fabricates.
 """
 import json
 import os
 import re
+import shutil
+import subprocess
 import uuid
 
 import boto3
@@ -26,9 +31,11 @@ s3 = boto3.client("s3")
 lam = boto3.client("lambda")
 
 DOCS_BUCKET = os.environ["DOCS_BUCKET"]
-SELF = os.environ["SELF_FUNCTION_NAME"]  # for async self-invoke (Opus > API GW 30s cap)
+SELF = os.environ["SELF_FUNCTION_NAME"]
+EXTRA_SKILLS_KEY = "profile/extra-skills.json"
+TECTONIC = "/opt/bin/tectonic"
+BADGE_PNG = "aws-certified-solutions-architect-associate.png"
 
-# Opus only (latest the account can invoke). No other models by request.
 MODEL = "us.anthropic.claude-opus-4-5-20251101-v1:0"
 
 SYSTEM = (
@@ -40,19 +47,19 @@ SYSTEM = (
     "lines to emphasize what THIS JD cares about. Reorder skills categories and the items "
     "within them most-relevant-first. Pick and order the 4 best projects.\n"
     "- Surface relevant skills/tools the candidate genuinely has (present anywhere in the "
-    "corpus) even if they were buried; lead bullets with JD-relevant results.\n"
-    "- You may bold up to a few key phrases per bullet with **double asterisks**.\n\n"
+    "corpus) even if buried; lead bullets with JD-relevant results.\n"
+    "- Bold up to a few key phrases per bullet with **double asterisks**.\n\n"
+    "LENGTH: this must fit TWO pages. Keep ~3 bullets on the top 2 projects and 2 on the "
+    "others; keep experience to 4-5 tight bullets; no bullet over ~2 lines.\n\n"
     "HARD RULES (honesty):\n"
-    "- Use ONLY facts, skills, tools, employers, dates, and metrics that appear in the corpus. "
-    "NEVER invent, inflate, or add a skill/tool/number that isn't there. If the JD wants "
+    "- Use ONLY facts, skills, tools, employers, dates, and metrics in the corpus (including "
+    "the candidate-confirmed extra skills, if any). NEVER invent or inflate. If the JD wants "
     "something the candidate lacks, put it in 'gaps' — do not write it into the résumé.\n"
-    "- Keep every metric truthful to the corpus (e.g. '5.2x', '~7 seconds', '6m36s RTO').\n"
-    "- Select EXACTLY 4 projects by their corpus id. Keep bullets concise (résumé length).\n"
+    "- Keep every metric truthful (e.g. '5.2x', '~7 seconds', '6m36s RTO').\n"
+    "- Select EXACTLY 4 projects by their corpus id.\n"
     "- Output PLAIN TEXT only (no LaTeX, no markdown except **bold**).\n"
     "- 'customFields' = 2-6 useful application tags parsed from the JD (e.g. "
-    '{"key":"Clearance","value":"TS/SCI"}, {"key":"Visa","value":"Sponsors H-1B"}, '
-    '{"key":"Team","value":"Platform"}, {"key":"Comp","value":"$150k-$180k"}). Only what the '
-    "JD actually states; [] if none.\n"
+    '{"key":"Clearance","value":"TS/SCI"}). Only what the JD states; [] if none.\n'
     "- Reply with ONLY one compact JSON object, no prose, matching this schema:\n"
     '{"summary":str,"skills":[{"category":str,"items":str}],"experienceBullets":[str],'
     '"projects":[{"id":str,"name":str,"tech":str,"bullets":[str]}],"rationale":str,'
@@ -71,37 +78,48 @@ def _plain(s):
     return s
 
 
-def _corpus_text():
-    lines = ["=== SKILLS (categories the candidate has — reorder/rewrite items, never add new ones) ==="]
-    for k, v in P.SKILLS.items():
-        lines.append(f"* {_plain(k)}: {_plain(v)}")
-    lines.append("\n=== EXPERIENCE — HCLTech, DevOps Engineer (rewrite these bullets) ===")
-    for b in P.EXPERIENCE[0]["bullets"]:
-        lines.append(f"  - {_plain(b)}")
-    lines.append("\n=== BASE SUMMARY (rewrite for the JD) ===")
-    lines.append("  " + _plain(P.SUMMARY_BASE))
-    lines.append("\n=== PROJECTS (pick 4 by id; rewrite their bullets; keep name/tech accurate) ===")
-    for p in P.PROJECTS:
-        lines.append(f"* id={p['id']} | rank={p['rank']} | domains={','.join(p['domains'])}")
-        lines.append(f"    name: {_plain(p['name'])}")
-        lines.append(f"    tech: {_plain(p['tech'])}")
-        for b in p["bullets"]:
-            lines.append(f"    - {_plain(b)}")
-    return "\n".join(lines)
-
-
+# ---------- routing -----------------------------------------------------------
 def handler(event, ctx):
-    # Async worker path: self-invoked with a raw job payload (Opus can exceed the
-    # API Gateway 30s cap, so the request returns a jobId and the browser polls).
     if isinstance(event, dict) and event.get("_job"):
         return _run_job(event["_job"], event.get("params") or {}, ctx)
-
-    method = (event.get("requestContext", {}).get("http", {}) or {}).get("method", "POST")
+    http = (event.get("requestContext", {}).get("http", {}) or {})
+    method, path = http.get("method", "POST"), http.get("path", "")
+    if path.endswith("/profile-skills"):
+        return _list_skills() if method == "GET" else _add_skill(event)
     if method == "GET":
         return _get_status(event)
     return _start_job(event)
 
 
+# ---------- candidate-confirmed extra skills (ATS "I have this") --------------
+def _load_extras():
+    try:
+        obj = s3.get_object(Bucket=DOCS_BUCKET, Key=EXTRA_SKILLS_KEY)
+        return [s for s in json.loads(obj["Body"].read()).get("skills", []) if s]
+    except Exception:  # noqa: BLE001 — none yet
+        return []
+
+
+def _list_skills():
+    return _resp(200, {"skills": _load_extras()})
+
+
+def _add_skill(event):
+    try:
+        skill = str(json.loads(event.get("body") or "{}").get("skill", "")).strip()
+    except Exception:  # noqa: BLE001
+        return _resp(400, {"error": "bad body"})
+    if not (2 <= len(skill) <= 60):
+        return _resp(400, {"error": "skill must be 2-60 chars"})
+    skills = _load_extras()
+    if skill.lower() not in [x.lower() for x in skills]:
+        skills.append(skill)
+        s3.put_object(Bucket=DOCS_BUCKET, Key=EXTRA_SKILLS_KEY,
+                      Body=json.dumps({"skills": skills}).encode("utf-8"), ContentType="application/json")
+    return _resp(200, {"skills": skills})
+
+
+# ---------- job lifecycle -----------------------------------------------------
 def _start_job(event):
     try:
         body = json.loads(event.get("body") or "{}")
@@ -132,24 +150,42 @@ def _get_status(event):
         return _resp(200, {"status": "pending"})
 
 
+def _corpus_text(extras):
+    lines = ["=== SKILLS (categories the candidate has — reorder/rewrite items, never add new ones) ==="]
+    for k, v in P.SKILLS.items():
+        lines.append(f"* {_plain(k)}: {_plain(v)}")
+    if extras:
+        lines.append("* Candidate-confirmed additional skills (use if JD-relevant): " + ", ".join(extras))
+    lines.append("\n=== EXPERIENCE — HCLTech, DevOps Engineer (rewrite these bullets) ===")
+    for b in P.EXPERIENCE[0]["bullets"]:
+        lines.append(f"  - {_plain(b)}")
+    lines.append("\n=== BASE SUMMARY (rewrite for the JD) ===")
+    lines.append("  " + _plain(P.SUMMARY_BASE))
+    lines.append("\n=== PROJECTS (pick 4 by id; rewrite their bullets; keep name/tech accurate) ===")
+    for p in P.PROJECTS:
+        lines.append(f"* id={p['id']} | rank={p['rank']} | domains={','.join(p['domains'])}")
+        lines.append(f"    name: {_plain(p['name'])}")
+        lines.append(f"    tech: {_plain(p['tech'])}")
+        for b in p["bullets"]:
+            lines.append(f"    - {_plain(b)}")
+    return "\n".join(lines)
+
+
 def _run_job(job, params, ctx):
-    """Async worker: run Opus, render, and write result.json for the poller."""
     jd = params.get("jd", "")
     want_cover = bool(params.get("coverLetter"))
     company = (params.get("company") or "").strip()
     role = (params.get("role") or "").strip()
+    extras = _load_extras()
 
     user = (
-        f"{_corpus_text()}\n\n=== JOB DESCRIPTION ===\n{jd[:6000]}\n\n"
+        f"{_corpus_text(extras)}\n\n=== JOB DESCRIPTION ===\n{jd[:6000]}\n\n"
         f"Cover letter requested: {'YES — 3-4 paragraphs' if want_cover else 'NO — return []'}."
         + (f"\nTarget company: {company}" if company else "")
         + (f"\nTarget role: {role}" if role else "")
     )
-    payload = {
-        "anthropic_version": "bedrock-2023-05-31", "max_tokens": 4096, "temperature": 0.3,
-        "system": SYSTEM,
-        "messages": [{"role": "user", "content": [{"type": "text", "text": user}]}],
-    }
+    payload = {"anthropic_version": "bedrock-2023-05-31", "max_tokens": 4096, "temperature": 0.3,
+               "system": SYSTEM, "messages": [{"role": "user", "content": [{"type": "text", "text": user}]}]}
     try:
         resp = bedrock.invoke_model(modelId=MODEL, body=json.dumps(payload))
         text = json.loads(resp["body"].read())["content"][0]["text"]
@@ -161,29 +197,116 @@ def _run_job(job, params, ctx):
 
     resume_tex = T.render_resume(sel)
     cover_tex = T.render_cover_letter(company, role, sel["coverLetter"]) if (want_cover and sel.get("coverLetter")) else None
-
-    key = f"generated/{job}/resume.tex"
-    try:
-        s3.put_object(Bucket=DOCS_BUCKET, Key=key, Body=resume_tex.encode("utf-8"), ContentType="application/x-tex")
-        if cover_tex:
-            s3.put_object(Bucket=DOCS_BUCKET, Key=f"generated/{job}/cover-letter.tex",
-                          Body=cover_tex.encode("utf-8"), ContentType="application/x-tex")
-    except Exception as e:  # noqa: BLE001 — snapshot is best-effort
-        print(f"snapshot failed (non-fatal): {type(e).__name__}: {e}")
-
     selected = [{"id": s.get("id"), "name": _plain((P.project_by_id(s.get("id")) or {}).get("name", s.get("id", "")))}
                 for s in (sel.get("projects") or [])]
     custom = [{"key": (c.get("key") or "").strip(), "value": (c.get("value") or "").strip()}
               for c in (sel.get("customFields") or []) if (c.get("key") or "").strip()]
-    _write_result(job, {
-        "status": "ready", "model": "opus",
+
+    result = {
+        "status": "ready", "model": "opus", "pdfStatus": "compiling",
         "resumeLatex": resume_tex, "coverLetterLatex": cover_tex,
         "matchPercent": sel.get("matchPercent"), "matched": sel.get("matched", []),
         "gaps": sel.get("gaps", []), "atsCovered": sel.get("atsCovered", []),
         "atsMissing": sel.get("atsMissing", []), "rationale": sel.get("rationale", ""),
-        "selectedProjects": selected, "customFields": custom, "snapshotKey": key,
-    })
+        "selectedProjects": selected, "customFields": custom, "snapshotKey": f"generated/{job}/resume.tex",
+    }
+    _snapshot(job, "resume.tex", resume_tex)
+    if cover_tex:
+        _snapshot(job, "cover-letter.tex", cover_tex)
+    _write_result(job, result)   # phase 1: LaTeX ready fast
+
+    # phase 2: best-effort server-side PDF with length auto-fit (never fatal)
+    try:
+        pdf, pages, final_tex = _compile_autofit(sel)
+        if pdf:
+            s3.put_object(Bucket=DOCS_BUCKET, Key=f"generated/{job}/resume.pdf", Body=pdf, ContentType="application/pdf")
+            result["pdfUrl"] = _presign(f"generated/{job}/resume.pdf")
+            result["pages"] = pages
+            if final_tex != resume_tex:               # auto-fit trimmed it
+                result["resumeLatex"] = final_tex
+                _snapshot(job, "resume.tex", final_tex)
+            if cover_tex:
+                cpdf, _cp, _ct = _compile(cover_tex, "cover")
+                if cpdf:
+                    s3.put_object(Bucket=DOCS_BUCKET, Key=f"generated/{job}/cover-letter.pdf", Body=cpdf, ContentType="application/pdf")
+                    result["coverPdfUrl"] = _presign(f"generated/{job}/cover-letter.pdf")
+            result["pdfStatus"] = "ready"
+        else:
+            result["pdfStatus"] = "error"
+    except Exception as e:  # noqa: BLE001
+        print(f"pdf compile failed (non-fatal): {type(e).__name__}: {e}")
+        result["pdfStatus"] = "error"
+    _write_result(job, result)   # phase 2: PDF url (or error)
     return {"ok": True}
+
+
+# ---------- LaTeX compile + length auto-fit -----------------------------------
+def _compile(tex, name):
+    """Compile one .tex with tectonic. Returns (pdf_bytes|None, pages|None, tex)."""
+    work = "/tmp/tex"
+    os.makedirs(work, exist_ok=True)
+    src = os.path.join(os.path.dirname(__file__), BADGE_PNG)
+    if os.path.exists(src):
+        shutil.copy(src, os.path.join(work, BADGE_PNG))
+    texpath = os.path.join(work, f"{name}.tex")
+    with open(texpath, "w") as fh:
+        fh.write(tex)
+    env = dict(os.environ, HOME="/tmp", TECTONIC_CACHE_DIR="/tmp/tct-cache")
+    r = subprocess.run([TECTONIC, texpath, "--outdir", work, "--keep-logs", "--chatter", "minimal"],
+                       cwd=work, env=env, capture_output=True, text=True, timeout=180)
+    pdfpath = os.path.join(work, f"{name}.pdf")
+    if r.returncode != 0 or not os.path.exists(pdfpath):
+        print(f"tectonic rc={r.returncode}: {r.stderr[-400:]}")
+        return None, None, tex
+    with open(pdfpath, "rb") as fh:
+        pdf = fh.read()
+    return pdf, _pages(os.path.join(work, f"{name}.log"), pdf), tex
+
+
+def _pages(logpath, pdf):
+    try:
+        with open(logpath, encoding="utf-8", errors="ignore") as fh:
+            m = re.search(r"\((\d+)\s+pages?", fh.read())
+            if m:
+                return int(m.group(1))
+    except Exception:  # noqa: BLE001
+        pass
+    return len(re.findall(rb"/Type\s*/Page[^s]", pdf)) or None  # fallback
+
+
+def _compile_autofit(sel):
+    """Compile; if >2 pages, trim the least-important bullet and recompile (<=5x)."""
+    tex = T.render_resume(sel)
+    pdf, pages, _ = _compile(tex, "resume")
+    tries = 0
+    while pdf and pages and pages > 2 and tries < 5 and _trim(sel):
+        tex = T.render_resume(sel)
+        pdf, pages, _ = _compile(tex, "resume")
+        tries += 1
+    return pdf, pages, tex
+
+
+def _trim(sel):
+    """Drop one lowest-impact bullet (last project first, then experience). True if trimmed."""
+    for pr in reversed(sel.get("projects") or []):
+        if len(pr.get("bullets") or []) > 1:
+            pr["bullets"].pop()
+            return True
+    eb = sel.get("experienceBullets") or []
+    if len(eb) > 3:
+        eb.pop()
+        return True
+    return False
+
+
+# ---------- helpers -----------------------------------------------------------
+def _snapshot(job, name, tex):
+    s3.put_object(Bucket=DOCS_BUCKET, Key=f"generated/{job}/{name}", Body=tex.encode("utf-8"),
+                  ContentType="application/x-tex")
+
+
+def _presign(key):
+    return s3.generate_presigned_url("get_object", Params={"Bucket": DOCS_BUCKET, "Key": key}, ExpiresIn=3600)
 
 
 def _write_result(job, obj):

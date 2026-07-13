@@ -365,9 +365,10 @@ async function autofill() {
   if (jd.length < 20) { $("#autofill-status").textContent = "Paste a longer JD first."; return; }
   $("#autofill").disabled = true; $("#autofill-status").textContent = "✨ Reading the JD…";
   try {
-    const { fields } = await api("POST", "/parse-jd", { jd });
+    const { fields, attributes } = await api("POST", "/parse-jd", { jd });
     const f = $("#app-form");
     Object.entries(fields || {}).forEach(([k, v]) => { if (f[k] != null && v) f[k].value = v; });
+    mergeCustomFields(attributes);
     $("#autofill-status").textContent = "Filled ✓ — review and save.";
   } catch (e) { $("#autofill-status").textContent = e.message; }
   finally { $("#autofill").disabled = false; }
@@ -405,6 +406,7 @@ async function generateResume() {
     lastGen = r;
     renderGenOut(r);
     mergeCustomFields(r.customFields);
+    if (r.pdfStatus === "compiling") pollPdf(jobId); // reveal the PDF button when ready
   } catch (e) { out.innerHTML = `<p class="err">${esc(e.message)}</p>`; }
   finally { btn.disabled = false; }
 }
@@ -420,6 +422,15 @@ function mergeCustomFields(suggested) {
 }
 
 const gchips = (list, cls) => (list && list.length ? list.map((x) => `<span class="gchip ${cls}">${esc(x)}</span>`).join("") : `<span class="filenote">none</span>`);
+const atsChips = (list) => (list && list.length ? list.map((x) => `<span class="gchip miss">${esc(x)} <button type="button" class="gchip-add" data-kw="${esc(x)}" title="I have this — add to my skills for future résumés">+</button></span>`).join("") : `<span class="filenote">none</span>`);
+
+function pdfHtml(r) {
+  if (r.pdfUrl) return `<a class="btn primary" href="${esc(r.pdfUrl)}" target="_blank" rel="noopener">⬇ Download PDF${r.pages ? ` · ${r.pages}p` : ""}</a>`
+    + (r.coverPdfUrl ? ` <a class="btn" href="${esc(r.coverPdfUrl)}" target="_blank" rel="noopener">⬇ Cover PDF</a>` : "");
+  if (r.pdfStatus === "compiling") return `<span class="filenote">📄 Compiling PDF…</span>`;
+  return `<span class="filenote">Server PDF unavailable — download the .tex and compile locally.</span>`;
+}
+function updatePdfUi(r) { const el = $("#gen-pdf"); if (el) el.innerHTML = pdfHtml(r); }
 
 function renderGenOut(r) {
   const out = $("#gen-out");
@@ -432,18 +443,35 @@ function renderGenOut(r) {
     <div class="gen-cols">
       <div><div class="gen-h">✓ Matched</div>${gchips(r.matched, "ok")}</div>
       <div><div class="gen-h">⚠ Gaps</div>${gchips(r.gaps, "gap")}</div>
-      <div><div class="gen-h">ATS keywords missing</div>${gchips(r.atsMissing, "miss")}</div>
+      <div><div class="gen-h">ATS missing · “+” if you have it</div>${atsChips(r.atsMissing)}</div>
     </div>
     <div class="gen-actions">
-      <button type="button" class="btn primary" id="gen-dl">⬇ Download résumé .tex</button>
+      <span id="gen-pdf">${pdfHtml(r)}</span>
+      <button type="button" class="btn" id="gen-dl">⬇ .tex</button>
       <button type="button" class="btn" id="gen-copy">⧉ Copy LaTeX</button>
-      ${r.coverLetterLatex ? `<button type="button" class="btn" id="gen-dl-cover">⬇ Cover letter .tex</button>` : ""}
-      <span class="filenote">Compile locally → upload the PDF below → Save.</span>
+      ${r.coverLetterLatex ? `<button type="button" class="btn" id="gen-dl-cover">⬇ Cover .tex</button>` : ""}
     </div>
     <details class="gen-src"><summary>Preview LaTeX</summary><pre>${esc(r.resumeLatex || "")}</pre></details>`;
-  $("#gen-dl").onclick = () => downloadText("resume-tailored.tex", r.resumeLatex);
-  $("#gen-copy").onclick = () => navigator.clipboard.writeText(r.resumeLatex || "").then(() => ($("#gen-copy").textContent = "Copied ✓"));
-  if (r.coverLetterLatex) $("#gen-dl-cover").onclick = () => downloadText("cover-letter.tex", r.coverLetterLatex);
+  $("#gen-dl").onclick = () => downloadText("resume-tailored.tex", lastGen.resumeLatex || r.resumeLatex);
+  $("#gen-copy").onclick = () => navigator.clipboard.writeText(lastGen.resumeLatex || r.resumeLatex || "").then(() => ($("#gen-copy").textContent = "Copied ✓"));
+  if (r.coverLetterLatex) $("#gen-dl-cover").onclick = () => downloadText("cover-letter.tex", lastGen.coverLetterLatex || r.coverLetterLatex);
+  $$("#gen-out .gchip-add").forEach((b) => (b.onclick = () => addSkill(b.dataset.kw, b)));
+}
+
+// Keep polling after results land, to reveal the server-side PDF when it's compiled.
+async function pollPdf(jobId) {
+  for (let i = 0; i < 70; i++) {
+    await sleep(3000);
+    let s; try { s = await api("GET", "/generate-resume?job=" + encodeURIComponent(jobId)); } catch (_e) { continue; }
+    if (s.pdfStatus === "ready" || s.pdfStatus === "error") { lastGen = s; updatePdfUi(s); break; }
+  }
+}
+
+// ATS "I have this" -> persist to my confirmed skills so future résumés can use it.
+async function addSkill(kw, btn) {
+  btn.disabled = true; const old = btn.textContent; btn.textContent = "…";
+  try { await api("POST", "/profile-skills", { skill: kw }); btn.textContent = "✓"; btn.title = "Added — future résumés can use it"; }
+  catch (_e) { btn.textContent = old; btn.disabled = false; }
 }
 
 function downloadText(name, text) {

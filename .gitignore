@@ -37,3 +37,6 @@ config.local.*
 src/api/pypdf/
 src/api/pypdf-*/
 src/api/*.dist-info/
+
+# large binary — fetch via scripts/fetch_tectonic_layer.sh
+terraform/layers/tectonic/bin/tectonic

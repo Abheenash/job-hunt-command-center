@@ -331,3 +331,6 @@ main { flex: 1; min-width: 0; padding: 1.1rem 1.5rem 2rem; max-width: 1180px; }
 .cf-del { border: 1px solid var(--border); background: #fff; border-radius: 8px; cursor: pointer; padding: 0 .6rem; color: var(--muted); }
 .cf-del:hover { color: var(--danger); border-color: var(--danger); }
 .gen-badge { font-size: .7rem; font-weight: 700; letter-spacing: .03em; color: #6b3fa0; background: #f2ecfb; border: 1px solid #dccdf2; border-radius: 999px; padding: .12rem .5rem; }
+.gchip-add { border: none; background: #b3341f; color: #fff; border-radius: 999px; width: 16px; height: 16px; line-height: 15px; font-size: .72rem; padding: 0; cursor: pointer; vertical-align: middle; }
+.gchip-add:hover { background: #8a2517; }
+.gchip-add:disabled { background: #037f0c; cursor: default; }

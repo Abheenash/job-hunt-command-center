@@ -36,7 +36,9 @@ JD_SYSTEM = (
     '{"company":str,"title":str,"location":str,"state":str (2-letter US code, or '
     '"Remote", or ""),"workMode":str ("Remote"|"Hybrid"|"On-site"|""),"salary":str,'
     '"seniority":str,"tags":str (comma-separated 3-6 keywords),'
-    '"requiredSkills":str (comma-separated),"niceToHave":str (comma-separated)}'
+    '"requiredSkills":str (comma-separated),"niceToHave":str (comma-separated),'
+    '"attributes":[{"key":str,"value":str}] (2-5 JD-specific tags with no dedicated '
+    "field above — e.g. Clearance, Visa, Team, Comp, Start date — only if the JD states them)}"
 )
 
 MATCH_SYSTEM = (
@@ -279,7 +281,9 @@ def parse_jd(body):
     # keep only known keys
     allowed = {"company", "title", "location", "state", "workMode", "salary",
                "seniority", "tags", "requiredSkills", "niceToHave"}
-    return _r(200, {"fields": {k: v for k, v in fields.items() if k in allowed}})
+    attrs = [{"key": str(a.get("key", "")).strip(), "value": str(a.get("value", "")).strip()}
+             for a in (fields.get("attributes") or []) if isinstance(a, dict) and str(a.get("key", "")).strip()]
+    return _r(200, {"fields": {k: v for k, v in fields.items() if k in allowed}, "attributes": attrs})
 
 
 def _first_json(text):
