@@ -201,6 +201,7 @@ main { flex: 1; min-width: 0; padding: 1.1rem 1.5rem 2rem; max-width: 1180px; }
 .notif-item { display: flex; gap: .6rem; align-items: flex-start; width: 100%; text-align: left; background: none; border: 0; border-bottom: 1px solid var(--border-soft); cursor: pointer; padding: .6rem .9rem; font: inherit; }
 .notif-item:hover { background: #f2f8fd; } .notif-cat { font-size: 1.1rem; flex: none; }
 .notif-item b { font-size: .85rem; display: block; } .notif-item small { color: var(--muted); font-size: .75rem; }
+.notif-act { color: var(--ok); font-weight: 700; }
 .notif-empty { padding: 1.2rem .9rem; color: var(--muted); font-size: .85rem; text-align: center; }
 
 /* follow-ups view */

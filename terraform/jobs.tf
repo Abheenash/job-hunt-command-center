@@ -39,11 +39,13 @@ resource "aws_iam_role_policy_attachment" "inbox_scan_basic" {
 
 data "aws_iam_policy_document" "inbox_scan" {
   statement {
-    actions   = ["dynamodb:Scan"]
+    # read apps to match, and update them to auto-advance status from email
+    actions   = ["dynamodb:Scan", "dynamodb:GetItem", "dynamodb:PutItem"]
     resources = [aws_dynamodb_table.applications.arn]
   }
   statement {
-    actions   = ["dynamodb:PutItem"]
+    # write findings + scan existing ids for idempotency
+    actions   = ["dynamodb:PutItem", "dynamodb:Scan"]
     resources = [aws_dynamodb_table.email_events.arn]
   }
   statement {
