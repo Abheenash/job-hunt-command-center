@@ -79,6 +79,10 @@ def handler(event, _ctx):
         if parts[:1] == ["parse-jd"] and method == "POST":
             return parse_jd(body)
 
+        # /notifications  (classified inbox findings feed)
+        if parts[:1] == ["notifications"] and method == "GET":
+            return list_notifications(user)
+
         if parts[:1] == ["applications"]:
             if len(parts) == 1:
                 if method == "POST":
@@ -142,10 +146,38 @@ def get_app(user, app_id):
 
 def update_app(user, app_id, data):
     record = _owned(user, app_id)
+    old_status = record.get("status")
+    old_docs = len(record.get("documents") or [])
+    old_due = record.get("nextDue")
     record.update(data or {})
-    record.update({"appId": app_id, "userId": user, "updatedAt": int(time.time())})
+    now = int(time.time())
+    record.update({"appId": app_id, "userId": user, "updatedAt": now})
+    # append meaningful activity events (so the timeline isn't a gap-filler)
+    events = record.get("timeline") or []
+    new_status = record.get("status")
+    if new_status and new_status != old_status:
+        events.append({"at": now, "event": f"Status → {new_status}"})
+    if len(record.get("documents") or []) > old_docs:
+        events.append({"at": now, "event": "Résumé attached"})
+    new_due = record.get("nextDue")
+    if new_due and new_due != old_due:
+        events.append({"at": now, "event": f"Next action set — due {new_due}"})
+    record["timeline"] = events[-50:]
     _put(app_id, user, record)
     return _r(200, record)
+
+
+def list_notifications(user):
+    """Recent classified inbox findings across all applications (the bell feed)."""
+    events, kwargs = [], {"TableName": EVENTS}
+    while True:
+        r = ddb.scan(**kwargs)
+        events += [json.loads(i["body"]["S"]) for i in r.get("Items", [])]
+        if "LastEvaluatedKey" not in r or len(events) > 300:
+            break
+        kwargs["ExclusiveStartKey"] = r["LastEvaluatedKey"]
+    events.sort(key=lambda e: e.get("receivedAt", 0), reverse=True)
+    return _r(200, {"notifications": events[:50]})
 
 
 def delete_app(user, app_id):
@@ -273,8 +305,12 @@ def match_resume(user, app_id):
     item["matchSummary"] = str(result.get("summary") or "")[:400]
     item["matchMatched"] = result.get("matched") or []
     item["matchMissing"] = result.get("missing") or []
-    item["matchedAt"] = int(time.time())
-    item["updatedAt"] = int(time.time())
+    now = int(time.time())
+    item["matchedAt"] = now
+    item["updatedAt"] = now
+    events = item.get("timeline") or []
+    events.append({"at": now, "event": f"Match check — {item['matchPercent']}% fit"})
+    item["timeline"] = events[-50:]
     _put(app_id, user, item)
     return _r(200, {"match": result})
 

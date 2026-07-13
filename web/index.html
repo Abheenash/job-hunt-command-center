@@ -40,6 +40,13 @@
         <kbd>/</kbd>
       </div>
       <div class="gnav-r">
+        <div class="pop-wrap">
+          <button class="gnav-chip bell" id="notif-btn" title="Inbox findings"><span class="i">🔔</span><span class="nbadge" id="notif-badge" hidden>0</span></button>
+          <div class="pop notif-pop" id="notif-pop" hidden>
+            <div class="notif-head"><b>Inbox findings</b><button class="linkbtn" id="notif-read">Mark all read</button></div>
+            <div id="notif-list"></div>
+          </div>
+        </div>
         <button class="gnav-chip" id="settings-btn"><span class="i">⚙</span><span class="label">Settings</span></button>
         <div class="pop-wrap">
           <button class="gnav-acct" id="acct-btn"><span class="avatar-i" id="avatar-i">A</span><span class="name" id="who"></span><span class="caret">▾</span></button>
@@ -55,6 +62,11 @@
 
     <div class="shell">
       <aside class="sidebar" id="sidebar">
+        <div class="side-sub">Views</div>
+        <nav class="views" id="views">
+          <button class="chip view on" data-v="all">📋 All applications</button>
+          <button class="chip view" data-v="todo">⏰ Follow-ups<span id="todo-count">0</span></button>
+        </nav>
         <div class="side-sub">Status</div>
         <nav id="filters"></nav>
         <div class="side-sub">Filter</div>
@@ -91,6 +103,9 @@
         <!-- DETAIL VIEW (rendered by JS) -->
         <div id="detail-view" hidden></div>
 
+        <!-- FOLLOW-UPS VIEW (rendered by JS) -->
+        <div id="todo-view" hidden></div>
+
         <!-- EDIT VIEW (inline, page-style) -->
         <div id="edit-view" hidden>
           <button class="backlink" id="e-back"><svg class="i"><use href="#ic-back"/></svg> <span id="e-back-label">Back</span></button>
@@ -110,6 +125,7 @@
             <label>Status <span class="req">*</span>
               <select name="status"><option>applied</option><option>screen</option><option>interview</option><option>offer</option><option>rejected</option><option>ghosted</option></select>
             </label>
+            <label>Importance<select name="priority"><option value="">—</option><option>High</option><option>Medium</option><option>Low</option></select></label>
             <label>Location<input name="location" placeholder="City / Remote" /></label>
             <label>State<select name="state" id="state-select"><option value="">—</option></select></label>
             <label>Work mode<select name="workMode"><option value="">—</option><option>Remote</option><option>Hybrid</option><option>On-site</option></select></label>

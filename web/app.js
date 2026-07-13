@@ -7,9 +7,10 @@ const LS = { id: "jhcc_id", access: "jhcc_access", refresh: "jhcc_refresh", emai
 
 const STATUSES = ["applied", "screen", "interview", "offer", "rejected", "ghosted"];
 const US_STATES = ["Remote", "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY", "DC"];
-const FORM_FIELDS = ["company", "title", "dateApplied", "status", "location", "state", "workMode",
+const FORM_FIELDS = ["company", "title", "dateApplied", "status", "priority", "location", "state", "workMode",
   "seniority", "salary", "source", "url", "contactName", "contactEmail", "nextAction", "nextDue",
   "tags", "requiredSkills", "niceToHave"];
+const fmtDate = (epoch) => { try { return new Date(epoch * 1000).toISOString().slice(0, 10); } catch (_e) { return ""; } };
 
 let APPS = [];
 let editing = null, currentDetail = null;
@@ -77,6 +78,8 @@ async function load() {
 function render() {
   renderStats(); renderStateFilter(); renderFilters(); renderList(); renderActivity();
   const el = $("#side-count"); if (el) el.textContent = `${APPS.length} application${APPS.length === 1 ? "" : "s"} tracked`;
+  const tc = $("#todo-count"); if (tc) tc.textContent = todoItems().length;
+  if (currentView === "todo" && !$("#todo-view").hidden) renderTodo();
 }
 
 function renderStats() {
@@ -131,12 +134,13 @@ function card(a) {
   const spons = a.sponsors ? `<span class="tag sp">sponsors</span>` : "";
   const st = a.state ? `<span class="tag st">${esc(a.state)}</span>` : "";
   const mt = a.matchPercent != null ? `<span class="tag mt ${a.matchPercent >= 75 ? "good" : a.matchPercent >= 50 ? "ok" : "low"}">${a.matchPercent}% match</span>` : "";
+  const pr = a.priority ? `<span class="tag pr ${a.priority.toLowerCase()}">${esc(a.priority)}</span>` : "";
   const tags = (a.tags || "").split(",").map((t) => t.trim()).filter(Boolean).slice(0, 3).map((t) => `<span class="tag">${esc(t)}</span>`).join("");
   return `<article class="card" data-id="${a.appId}">
     <div class="card-h"><span class="card-ico">${ini(a)}</span><b>${esc(a.company || "—")}</b><span class="pill ${a.status}">${a.status}</span></div>
     <div class="role">${esc(a.title || "")}</div>
     <div class="meta">${esc(a.dateApplied || "")}${a.location ? " · " + esc(a.location) : ""}${a.workMode ? " · " + esc(a.workMode) : ""}</div>
-    <div class="tags">${mt}${st}${spons}${tags}</div>${due}</article>`;
+    <div class="tags">${pr}${mt}${st}${spons}${tags}</div>${due}</article>`;
 }
 
 function renderActivity() {
@@ -152,9 +156,38 @@ function renderActivity() {
 }
 
 // ---------- detail view (portfolio-style) ----------------------------------
-function showOnly(sel) { ["#list-view", "#detail-view", "#edit-view"].forEach((s) => ($(s).hidden = s !== sel)); }
+function showOnly(sel) { ["#list-view", "#detail-view", "#edit-view", "#todo-view"].forEach((s) => ($(s).hidden = s !== sel)); }
 function openDetail(id) { const a = APPS.find((x) => x.appId === id); if (!a) return; currentDetail = id; renderDetail(a); showOnly("#detail-view"); window.scrollTo(0, 0); }
-function closeDetail() { currentDetail = null; showOnly("#list-view"); }
+function closeDetail() { currentDetail = null; showOnly(currentView === "todo" ? "#todo-view" : "#list-view"); }
+
+let currentView = "all";
+function setView(v) {
+  currentView = v; currentDetail = null;
+  $$("#views .view").forEach((b) => b.classList.toggle("on", b.dataset.v === v));
+  if (v === "todo") { renderTodo(); showOnly("#todo-view"); } else { showOnly("#list-view"); }
+}
+
+// ---------- follow-ups (next action + due + importance) --------------------
+function todoItems() {
+  return APPS.filter((a) => a.nextAction || a.nextDue).sort((x, y) => (x.nextDue || "9999").localeCompare(y.nextDue || "9999"));
+}
+function renderTodo() {
+  const rows = todoItems();
+  const t = today();
+  const body = rows.length ? rows.map((a) => {
+    const overdue = a.nextDue && a.nextDue < t;
+    const soon = a.nextDue && a.nextDue === t;
+    const when = a.nextDue ? (overdue ? `overdue · ${a.nextDue}` : soon ? `due today` : `due ${a.nextDue}`) : "no date";
+    const pr = a.priority ? `<span class="tag pr ${a.priority.toLowerCase()}">${esc(a.priority)}</span>` : "";
+    return `<div class="todo-row ${overdue ? "over" : soon ? "soon" : ""}" data-id="${a.appId}">
+      <span class="todo-when">${esc(when)}</span>
+      <div class="todo-main"><b>${esc(a.company || "—")}</b> — ${esc(a.title || "")}<div class="todo-act">${esc(a.nextAction || "Follow up")}</div></div>
+      <span class="pill ${a.status}">${a.status}</span>${pr}</div>`;
+  }).join("") : `<p class="empty">No follow-ups. Add a <b>Next action + due date</b> to an application to see it here.</p>`;
+  $("#todo-view").innerHTML = `<div class="page-head"><div><h1>⏰ Follow-ups</h1><p class="sub">Applications with a next action, soonest first. Overdue in red.</p></div></div>
+    <div class="container"><div class="todo-list">${body}</div></div>`;
+  $$("#todo-view .todo-row").forEach((r) => (r.onclick = () => openDetail(r.dataset.id)));
+}
 
 function kvRow(label, val) { return val ? `<div><span>${label}</span><b>${esc(val)}</b></div>` : ""; }
 
@@ -190,11 +223,12 @@ function renderDetail(a) {
         <div class="container"><div class="container-head">📎 Documents</div><div class="container-body">
           ${docs.length ? `<div class="doclist">${docs.map((d) => `<a href="#" data-key="${esc(d.docKey)}">📄 ${esc(d.filename || "document")}</a>`).join("")}</div>` : `<p class="muted">No résumé attached. Use Edit to add the one you applied with.</p>`}
         </div></div>
-        ${timeline.length ? `<div class="container"><div class="container-head">🕘 Activity</div><div class="container-body"><ul class="timeline">${timeline.map((t) => `<li>${esc(t.event || "")}</li>`).join("")}</ul></div></div>` : ""}
+        ${timeline.length ? `<div class="container"><div class="container-head">🕘 Activity</div><div class="container-body"><ul class="timeline">${timeline.map((t) => `<li><span class="tl-date">${t.at ? esc(fmtDate(t.at)) : ""}</span>${esc(t.event || "")}</li>`).join("")}</ul></div></div>` : ""}
       </div>
       <div class="detail-side">
         <div class="container"><div class="container-head">Overview</div><div class="container-body kv">
           ${kvRow("Status", a.status)}
+          ${kvRow("Importance", a.priority)}
           ${kvRow("Applied", a.dateApplied + (days != null ? ` (${days}d ago)` : ""))}
           ${kvRow("Location", a.location)}
           ${kvRow("State", a.state)}
@@ -341,7 +375,7 @@ async function delApp(id) {
 }
 
 function exportCsv() {
-  const cols = ["company", "title", "status", "dateApplied", "location", "state", "workMode", "seniority",
+  const cols = ["company", "title", "status", "priority", "dateApplied", "location", "state", "workMode", "seniority",
     "salary", "source", "url", "contactName", "contactEmail", "sponsors", "nextAction", "nextDue", "tags", "requiredSkills"];
   const q = (v) => `"${String(v == null ? "" : v).replace(/"/g, '""')}"`;
   const rows = [cols.join(",")].concat(APPS.map((a) => cols.map((c) => q(a[c])).join(",")));
@@ -359,6 +393,27 @@ async function changePassword() {
   } catch (e) { msg.textContent = e.message; }
 }
 
+// ---------- notifications (inbox findings) ---------------------------------
+let NOTIFS = [];
+const NOTIF_SEEN = "jhcc_notif_seen";
+const CAT_ICON = { interview: "📅", offer: "🎉", rejection: "🚫", recruiter_reply: "💬", confirmation: "✅" };
+async function loadNotifications() { try { NOTIFS = (await api("GET", "/notifications")).notifications || []; } catch (_e) { NOTIFS = []; } renderNotifBadge(); }
+function renderNotifBadge() {
+  const last = +(localStorage.getItem(NOTIF_SEEN) || 0);
+  const unread = NOTIFS.filter((n) => (n.receivedAt || 0) > last).length;
+  const b = $("#notif-badge"); if (!b) return;
+  if (unread > 0) { b.textContent = unread > 9 ? "9+" : unread; b.hidden = false; } else b.hidden = true;
+}
+function renderNotifList() {
+  const l = $("#notif-list");
+  l.innerHTML = NOTIFS.length ? NOTIFS.slice(0, 30).map((n) =>
+    `<button class="notif-item" data-app="${esc(n.appId || "")}"><span class="notif-cat">${CAT_ICON[n.category] || "📨"}</span>
+      <div><b>${esc(n.subject || "(no subject)")}</b><small>${esc((n.category || "").replace(/_/g, " "))}${n.from ? " · " + esc(n.from) : ""}</small></div></button>`).join("")
+    : `<p class="notif-empty">No inbox findings yet.<br><span class="filenote">Turn on Gmail scanning and recruiter replies, rejections &amp; interviews will appear here automatically.</span></p>`;
+  $$("#notif-list .notif-item").forEach((el) => (el.onclick = () => { const id = el.dataset.app; $("#notif-pop").hidden = true; if (id && id !== "unmatched") openDetail(id); }));
+}
+function togglePop(sel) { ["#acct-pop", "#notif-pop"].forEach((s) => { if (s !== sel) $(s).hidden = true; }); const p = $(sel); p.hidden = !p.hidden; }
+
 // ---------- wiring ---------------------------------------------------------
 function fillStateSelects() { $("#state-select").innerHTML = `<option value="">—</option>` + US_STATES.map((s) => `<option>${s}</option>`).join(""); }
 
@@ -370,6 +425,7 @@ function show(authed) {
     $("#who").textContent = email; $("#who2").textContent = email;
     $("#avatar-i").textContent = c; $("#avatar-i2").textContent = c;
     load().catch((e) => console.error(e));
+    loadNotifications();
   }
 }
 
@@ -383,12 +439,15 @@ $("#logout").onclick = logout;
 $("#settings-btn").onclick = () => { $("#settings").hidden = false; $("#pw-msg").textContent = ""; };
 $("#settings-close").onclick = () => ($("#settings").hidden = true);
 $("#pw-save").onclick = changePassword;
-$("#acct-btn").onclick = (e) => { e.stopPropagation(); $("#acct-pop").hidden = !$("#acct-pop").hidden; };
-document.addEventListener("click", (e) => { const p = $("#acct-pop"); if (p && !p.hidden && !e.target.closest(".pop-wrap")) p.hidden = true; });
+$("#acct-btn").onclick = (e) => { e.stopPropagation(); togglePop("#acct-pop"); };
+$("#notif-btn").onclick = (e) => { e.stopPropagation(); renderNotifList(); togglePop("#notif-pop"); };
+$("#notif-read").onclick = () => { localStorage.setItem(NOTIF_SEEN, String(Math.floor(Date.now() / 1000))); renderNotifBadge(); };
+$$("#views .view").forEach((b) => (b.onclick = () => { setView(b.dataset.v); closeDrawer(); }));
+document.addEventListener("click", (e) => { if (!e.target.closest(".pop-wrap")) { $("#acct-pop").hidden = true; $("#notif-pop").hidden = true; } });
 const closeDrawer = () => document.body.classList.remove("nav-open");
 $("#hamburger").onclick = () => document.body.classList.toggle("nav-open");
 $("#nav-backdrop").onclick = closeDrawer;
-$("#home-logo").onclick = () => { filterStatus = "all"; filterState = ""; filterDate = ""; filterOpt = false; query = ""; $("#search").value = ""; $("#f-state").value = ""; $("#f-date").value = ""; $("#f-opt").checked = false; closeDetail(); render(); closeDrawer(); window.scrollTo(0, 0); };
+$("#home-logo").onclick = () => { filterStatus = "all"; filterState = ""; filterDate = ""; filterOpt = false; query = ""; $("#search").value = ""; $("#f-state").value = ""; $("#f-date").value = ""; $("#f-opt").checked = false; render(); setView("all"); closeDrawer(); window.scrollTo(0, 0); };
 $("#sidebar").addEventListener("click", (e) => { if (e.target.closest(".chip")) closeDrawer(); });
 $("#add").onclick = () => openEdit(null);
 $("#cancel").onclick = cancelEdit;
