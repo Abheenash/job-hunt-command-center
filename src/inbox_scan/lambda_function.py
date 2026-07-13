@@ -41,11 +41,17 @@ AI_CLASSIFY_SYSTEM = (
     "a recruiter reaching out, an interview invite/scheduling, a job offer, or a "
     "rejection. Newsletters, order receipts, bills, promotions, security alerts, "
     "CI/CD or app notifications, and personal mail are NOT job-related, even if they "
-    "contain words like 'offer', 'application', or 'opportunity'. Reply with ONLY a "
-    "compact JSON object, no prose: "
+    "contain words like 'offer', 'application', or 'opportunity'. Also EXTRACT any "
+    "details useful for a tracker (recruiter, pay, location, interview date). Use "
+    "empty strings when absent — never invent. Reply with ONLY a compact JSON object, "
+    "no prose: "
     '{"jobRelated":bool,"category":"interview"|"offer"|"rejection"|"recruiter_reply"'
-    '|"confirmation"|"other","company":str (the hiring company, or ""),"role":str,'
-    '"summary":str (one short sentence on what it is),"confidence":number 0-1}'
+    '|"confirmation"|"other","company":str,"role":str,"summary":str (one short sentence),'
+    '"confidence":number 0-1,"recruiterName":str (the sender/signer person, or ""),'
+    '"salary":str (any compensation/pay stated, or ""),"location":str,'
+    '"workMode":"Remote"|"Hybrid"|"On-site"|"","interviewDate":str '
+    "(YYYY-MM-DD only if a specific interview date is stated, else \"\"),"
+    '"nextAction":str (what the candidate should do next, short, or "")}'
 )
 
 # Cheap pre-filter: only spend Bedrock on emails that plausibly touch a job search.
@@ -88,7 +94,7 @@ def handler(event, _ctx):
         app_id = (by_email.get(_addr(msg["from"]).lower())
                   or _match_by_name(r.get("company"), apps)
                   or _match_company(msg, companies, apps))
-        action = _apply_to_app(app_id, category, msg) if app_id else ""
+        action = _apply_to_app(app_id, category, msg, r) if app_id else ""
         if action:
             updated += 1
         _write_event(eid, app_id, msg, category, r.get("confidence", 0.7), action, r.get("summary", ""))
@@ -213,47 +219,84 @@ def _existing_event_ids():
     return ids
 
 
-def _apply_to_app(app_id, category, msg):
-    """Cross-check the matched application and auto-advance it from the email.
-    Forward-only (rejection/offer override). Returns a description, or '' if no change."""
+def _apply_to_app(app_id, category, msg, r):
+    """Cross-check the matched application: auto-advance status AND enrich fields
+    from the email (recruiter, pay, location, interview date). Never creates a new
+    application. Fills missing fields; updates pay if the email states a different
+    one. Returns a combined description of changes, or '' if none."""
     item = ddb.get_item(TableName=APPS, Key={"appId": {"S": app_id}}).get("Item")
     if not item:
         return ""
     rec = json.loads(item["body"]["S"])
     cur = rec.get("status", "applied")
-    action = ""
+    changes = []
+
+    # 1) status progression (forward-only; rejection/offer override)
     if category == "confirmation":
         if not rec.get("confirmed"):
             rec["confirmed"] = True
-            action = "verified as submitted"
+            changes.append("verified submitted")
     elif category == "rejection":
         if cur != "rejected":
             rec["status"] = "rejected"
-            action = "moved to rejected"
+            changes.append("moved to rejected")
     elif category == "offer":
         if cur not in ("offer", "rejected"):
             rec["status"] = "offer"
-            action = "moved to offer"
+            changes.append("moved to offer")
     elif category == "interview":
         if STATUS_RANK.get(cur, 0) < STATUS_RANK["interview"]:
             rec["status"] = "interview"
-            action = "moved to interview"
+            changes.append("moved to interview")
     elif category == "recruiter_reply":
         if STATUS_RANK.get(cur, 0) < STATUS_RANK["screen"]:
             rec["status"] = "screen"
-            action = "moved to screen"
-    if not action:
+            changes.append("moved to screen")
+
+    # 2) enrich — fill missing fields; update pay if the email differs
+    sender = _addr(msg.get("from", ""))
+    if sender and "@" in sender and not rec.get("contactEmail"):
+        rec["contactEmail"] = sender
+        changes.append("added recruiter email")
+    rn = (r.get("recruiterName") or "").strip()
+    if rn and not rec.get("contactName"):
+        rec["contactName"] = rn[:80]
+        changes.append(f"recruiter {rn[:40]}")
+    sal = (r.get("salary") or "").strip()
+    if sal and sal.lower() not in ("none", "n/a", "not specified") and sal != rec.get("salary"):
+        changes.append(f"pay {'→ ' + sal if rec.get('salary') else 'set ' + sal}")
+        rec["salary"] = sal[:60]
+    loc = (r.get("location") or "").strip()
+    if loc and not rec.get("location"):
+        rec["location"] = loc[:80]
+        changes.append("added location")
+    wm = (r.get("workMode") or "").strip()
+    if wm in ("Remote", "Hybrid", "On-site") and not rec.get("workMode"):
+        rec["workMode"] = wm
+    idate = (r.get("interviewDate") or "").strip()
+    if category == "interview" and _is_date(idate) and idate != rec.get("nextDue"):
+        rec["nextDue"] = idate
+        rec.setdefault("nextAction", "Prepare for interview")
+        changes.append(f"interview {idate}")
+
+    if not changes:
         return ""
     now = int(time.time())
     events = rec.get("timeline") or []
-    events.append({"at": now, "event": f"Auto: {action} — email “{(msg.get('subject') or '')[:80]}”"})
-    rec["timeline"] = events[-50:]
+    subj = (msg.get("subject") or "")[:70]
+    for ch in changes:
+        events.append({"at": now, "event": f"Auto: {ch} — email “{subj}”"})
+    rec["timeline"] = events[-60:]
     rec["updatedAt"] = now
     ddb.put_item(TableName=APPS, Item={
         "appId": {"S": app_id}, "userId": {"S": rec.get("userId", "")},
         "updatedAt": {"N": str(now)}, "body": {"S": json.dumps(rec)},
     })
-    return action
+    return "; ".join(changes)
+
+
+def _is_date(s):
+    return bool(re.match(r"^\d{4}-\d{2}-\d{2}$", s or ""))
 
 
 def _load_applications():
