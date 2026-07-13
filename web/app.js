@@ -319,8 +319,10 @@ async function saveApp(e) {
       saved = await api("PUT", "/applications/" + saved.appId, { documents: (saved.documents || []).concat([doc]) });
     }
     const savedId = saved.appId;
+    const autoMatch = !!file && !!rec.jd && rec.jd.length >= 20; // new résumé + a JD -> auto-match
     await load();
     editing = null; openDetail(savedId);
+    if (autoMatch) runMatch(savedId); // fire-and-forget; updates the detail when done
   } catch (err) { $("#form-err").textContent = err.message; }
   finally { $("#save").disabled = false; }
 }

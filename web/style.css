@@ -57,8 +57,9 @@ textarea { resize: vertical; }
 .gnav-chip, .gnav-acct { background: none; border: 0; color: #eaeded; cursor: pointer; font-size: .85rem; display: flex; align-items: center; gap: .4rem; padding: .35rem .55rem; border-radius: 6px; line-height: 1; font-family: inherit; }
 .gnav-chip .i { color: var(--orange); font-style: normal; } .gnav-chip:hover, .gnav-acct:hover { background: rgba(255,255,255,.1); }
 .gnav-acct .caret { opacity: .6; font-size: .7rem; }
-.avatar-i { width: 26px; height: 26px; border-radius: 50%; background: var(--orange); color: var(--nav); font-weight: 800; font-size: .8rem; display: inline-flex; align-items: center; justify-content: center; flex: none; }
-.avatar-i.big { width: 40px; height: 40px; font-size: 1rem; }
+/* profile photo avatar (same as the portfolio) */
+.avatar-i { width: 26px; height: 26px; border-radius: 50%; background: url("assets/headshot.jpg") center/cover, var(--orange); color: transparent; font-size: 0; display: inline-flex; flex: none; box-shadow: 0 0 0 1px rgba(255,255,255,.25); }
+.avatar-i.big { width: 40px; height: 40px; }
 
 /* popovers */
 .pop-wrap { position: relative; }
@@ -201,6 +202,9 @@ main { flex: 1; min-width: 0; padding: 1.1rem 1.5rem 2rem; max-width: 1180px; }
 .container-head { font-weight: 700; padding: .85rem 1.1rem; border-bottom: 1px solid var(--border-soft); font-size: .92rem; display: flex; align-items: center; gap: .5rem; }
 .container-body { padding: 1.1rem; color: var(--text); font-size: .9rem; }
 .container-body p strong { color: var(--text); }
+/* key-value rows (Overview / Contact) — matches the portfolio account-summary */
+.kv div { display: flex; justify-content: space-between; gap: 1rem; padding: .4rem 0; border-bottom: 1px solid var(--border-soft); font-size: .85rem; }
+.kv div:last-child { border-bottom: 0; } .kv span { color: var(--muted); } .kv b { color: var(--text); text-align: right; word-break: break-word; }
 
 /* detail view */
 .backlink { display: inline-flex; align-items: center; gap: .4rem; background: none; border: 0; cursor: pointer; color: var(--link); font: inherit; font-size: .88rem; font-weight: 600; margin-bottom: 1rem; padding: 0; }
