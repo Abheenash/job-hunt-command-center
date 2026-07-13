@@ -432,29 +432,39 @@ function pdfHtml(r) {
 }
 function updatePdfUi(r) { const el = $("#gen-pdf"); if (el) el.innerHTML = pdfHtml(r); }
 
+function breakdownHtml(bd) {
+  if (!bd || !bd.length) return "";
+  return `<div class="gen-rubric">` + bd.map((d) =>
+    `<div class="rub-row" title="${esc(d.note || "")}"><span class="rub-dim">${esc(d.dimension)} <small>· ${d.weight}%</small></span><span class="rub-bar"><i style="width:${Math.max(3, d.score)}%"></i></span><span class="rub-sc">${d.score}</span></div>`).join("") + `</div>`;
+}
+
 function renderGenOut(r) {
   const out = $("#gen-out");
   const projs = (r.selectedProjects || []).map((p) => esc((p.name || "").replace(/\\&/g, "&"))).join(" · ");
+  const atsOk = (r.atsScore != null && r.atsScore >= 75);
+  const atsLabel = r.atsScore != null ? ` · <b class="${atsOk ? "ats-ok" : "ats-lo"}">${r.atsScore}%</b> ${atsOk ? "✓" : "(aim ≥75%)"}` : "";
   out.innerHTML = `
     <div class="gen-top">
-      <div class="gen-score"><b>${r.matchPercent != null ? r.matchPercent + "%" : "—"}</b><span>JD match</span></div>
-      <div class="gen-meta"><b>Projects picked:</b> ${projs || "—"}<div class="filenote">${esc(r.rationale || "")}</div></div>
+      <div class="gen-score"><b>${r.matchPercent != null ? r.matchPercent + "%" : "—"}</b><span>weighted fit</span></div>
+      <div class="gen-meta"><b>Projects picked:</b> ${projs || "—"}<div class="filenote">${esc(r.rationale || "")}</div>${breakdownHtml(r.scoreBreakdown)}</div>
     </div>
     <div class="gen-cols">
       <div><div class="gen-h">✓ Matched</div>${gchips(r.matched, "ok")}</div>
       <div><div class="gen-h">⚠ Gaps</div>${gchips(r.gaps, "gap")}</div>
-      <div><div class="gen-h">ATS missing · “+” if you have it</div>${atsChips(r.atsMissing)}</div>
+      <div><div class="gen-h">ATS keywords${atsLabel} · “+” if you have it</div>${atsChips(r.atsMissing)}</div>
     </div>
     <div class="gen-actions">
       <span id="gen-pdf">${pdfHtml(r)}</span>
       <button type="button" class="btn" id="gen-dl">⬇ .tex</button>
       <button type="button" class="btn" id="gen-copy">⧉ Copy LaTeX</button>
       ${r.coverLetterLatex ? `<button type="button" class="btn" id="gen-dl-cover">⬇ Cover .tex</button>` : ""}
+      <button type="button" class="btn" id="gen-regen" title="Re-run — includes any skills you just confirmed">↻ Regenerate</button>
     </div>
     <details class="gen-src"><summary>Preview LaTeX</summary><pre>${esc(r.resumeLatex || "")}</pre></details>`;
   $("#gen-dl").onclick = () => downloadText("resume-tailored.tex", lastGen.resumeLatex || r.resumeLatex);
   $("#gen-copy").onclick = () => navigator.clipboard.writeText(lastGen.resumeLatex || r.resumeLatex || "").then(() => ($("#gen-copy").textContent = "Copied ✓"));
   if (r.coverLetterLatex) $("#gen-dl-cover").onclick = () => downloadText("cover-letter.tex", lastGen.coverLetterLatex || r.coverLetterLatex);
+  $("#gen-regen").onclick = generateResume;
   $$("#gen-out .gchip-add").forEach((b) => (b.onclick = () => addSkill(b.dataset.kw, b)));
 }
 
@@ -520,6 +530,12 @@ async function saveApp(e) {
       $("#resume-status").textContent = "Uploading résumé…";
       const doc = await uploadDoc(saved.appId, file);
       saved = await api("PUT", "/applications/" + saved.appId, { documents: (saved.documents || []).concat([doc]) });
+    } else if (lastGen && lastGen.jobId) {
+      // no manual upload but a résumé was generated — attach the compiled PDF directly
+      try {
+        const { doc } = await api("POST", `/applications/${saved.appId}/attach-generated`, { job: lastGen.jobId });
+        if (doc) saved = await api("PUT", "/applications/" + saved.appId, { documents: (saved.documents || []).concat([doc]) });
+      } catch (_e) { /* PDF not ready / compile failed — the .tex is still downloadable */ }
     }
     const savedId = saved.appId;
     const autoMatch = !!file && !!rec.jd && rec.jd.length >= 20; // new résumé + a JD -> auto-match

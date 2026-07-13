@@ -25,3 +25,9 @@ variable "hosted_zone_id" {
   type        = string
   default     = "Z05680081EH9N6652XDUI"
 }
+
+variable "bedrock_budget_usd" {
+  description = "Monthly Amazon Bedrock spend ceiling (USD) that triggers email alerts"
+  type        = number
+  default     = 15
+}

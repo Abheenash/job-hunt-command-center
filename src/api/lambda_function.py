@@ -17,6 +17,7 @@ the caller's Cognito `sub` (userId), so the store is already multi-user-ready.
 """
 import json
 import os
+import re
 import time
 import uuid
 
@@ -118,6 +119,8 @@ def handler(event, _ctx):
                 return upload_url(user, parts[1], body)
             elif len(parts) == 3 and parts[2] == "match" and method == "POST":
                 return match_resume(user, parts[1])
+            elif len(parts) == 3 and parts[2] == "attach-generated" and method == "POST":
+                return attach_generated(user, parts[1], body)
         return _r(404, {"error": "not found"})
     except NotFound:
         return _r(404, {"error": "application not found"})
@@ -224,6 +227,25 @@ def upload_url(user, app_id, data):
     url = s3.generate_presigned_url("put_object",
                                     Params={"Bucket": BUCKET, "Key": key}, ExpiresIn=PRESIGN_TTL)
     return _r(200, {"uploadUrl": url, "docKey": key, "kind": kind, "filename": filename})
+
+
+def attach_generated(user, app_id, data):
+    """Copy a résumé PDF produced by the generator (generated/<job>/resume.pdf) into
+    the app's own documents space, so it downloads through the normal ownership check.
+    Tolerant: if the PDF isn't there yet (compile pending/failed), returns no doc."""
+    _owned(user, app_id)
+    job = str((data or {}).get("job", ""))
+    if not re.fullmatch(r"[0-9a-f]{32}", job):
+        return _r(400, {"error": "bad job id"})
+    src = f"generated/{job}/resume.pdf"
+    dst = f"documents/{user}/{app_id}/{uuid.uuid4()}-resume-tailored.pdf"
+    try:
+        s3.copy_object(Bucket=BUCKET, CopySource={"Bucket": BUCKET, "Key": src}, Key=dst)
+    except Exception as e:  # noqa: BLE001 — PDF may not exist yet; not fatal
+        print(f"attach-generated: no PDF to copy ({type(e).__name__})")
+        return _r(200, {"doc": None})
+    return _r(200, {"doc": {"docKey": dst, "filename": "resume-tailored.pdf", "kind": "resume",
+                            "at": int(time.time())}})
 
 
 def download_url(user, key):

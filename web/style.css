@@ -334,3 +334,11 @@ main { flex: 1; min-width: 0; padding: 1.1rem 1.5rem 2rem; max-width: 1180px; }
 .gchip-add { border: none; background: #b3341f; color: #fff; border-radius: 999px; width: 16px; height: 16px; line-height: 15px; font-size: .72rem; padding: 0; cursor: pointer; vertical-align: middle; }
 .gchip-add:hover { background: #8a2517; }
 .gchip-add:disabled { background: #037f0c; cursor: default; }
+.gen-rubric { margin-top: .5rem; display: grid; gap: 3px; max-width: 420px; }
+.rub-row { display: grid; grid-template-columns: 150px 1fr 26px; align-items: center; gap: .5rem; font-size: .75rem; }
+.rub-dim { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rub-dim small { color: #9aa5b1; }
+.rub-bar { background: #e9ebed; border-radius: 999px; height: 7px; overflow: hidden; }
+.rub-bar i { display: block; height: 100%; background: var(--link); border-radius: 999px; }
+.rub-sc { text-align: right; font-variant-numeric: tabular-nums; }
+.ats-ok { color: #037f0c; } .ats-lo { color: #b3341f; }

@@ -60,13 +60,30 @@ SYSTEM = (
     "- Output PLAIN TEXT only (no LaTeX, no markdown except **bold**).\n"
     "- 'customFields' = 2-6 useful application tags parsed from the JD (e.g. "
     '{"key":"Clearance","value":"TS/SCI"}). Only what the JD states; [] if none.\n'
+    "SCORING (be strict and evidence-based, not generous):\n"
+    "- 'scoreBreakdown': score each of these EXACT dimensions 0-100 vs the JD using only "
+    "corpus evidence — 'Required skills' (JD must-haves the résumé clearly evidences), "
+    "'Preferred skills' (nice-to-haves), 'Experience & seniority' (years/level/scope fit), "
+    "'Domain relevance' (role/industry focus fit), 'ATS keywords' (share of the JD's key hard "
+    "terms present). One short 'note' each. The overall match % is computed from these by "
+    "fixed weights server-side — you only supply the sub-scores, so be honest.\n"
+    "- 'atsCovered'/'atsMissing': the JD's important hard keywords/skills that ARE / are NOT "
+    "present in the résumé (this drives the ATS keyword-match rate).\n"
     "- Reply with ONLY one compact JSON object, no prose, matching this schema:\n"
     '{"summary":str,"skills":[{"category":str,"items":str}],"experienceBullets":[str],'
     '"projects":[{"id":str,"name":str,"tech":str,"bullets":[str]}],"rationale":str,'
-    '"matchPercent":int,"matched":[str],"gaps":[str],"atsCovered":[str],"atsMissing":[str],'
+    '"scoreBreakdown":[{"dimension":str,"score":int,"note":str}],'
+    '"matched":[str],"gaps":[str],"atsCovered":[str],"atsMissing":[str],'
     '"customFields":[{"key":str,"value":str}],"coverLetter":[str]}\n'
     "'coverLetter' = 3-4 plain-text paragraphs ONLY if asked; otherwise []."
 )
+
+# Fixed weights for the match rubric — the model scores each dimension, we compute
+# the weighted total here so the number is defined and reproducible, not a vibe.
+MATCH_WEIGHTS = [
+    ("Required skills", 40), ("Preferred skills", 15), ("Experience & seniority", 20),
+    ("Domain relevance", 15), ("ATS keywords", 10),
+]
 
 _LATEX = [(r"\\textbf\{", ""), (r"\}", ""), (r"\$\\rightarrow\$", "->"), (r"\$\\leftrightarrow\$", "<->"),
           (r"\$\\sim\$", "~"), (r"\$\\times\$", "x"), (r"\\&", "&"), (r"\\%", "%"), (r"\\\$", "$")]
@@ -202,13 +219,27 @@ def _run_job(job, params, ctx):
     custom = [{"key": (c.get("key") or "").strip(), "value": (c.get("value") or "").strip()}
               for c in (sel.get("customFields") or []) if (c.get("key") or "").strip()]
 
+    # Weighted match rubric (computed here, not taken from the model) + ATS keyword rate.
+    by_dim = {str(d.get("dimension", "")).strip().lower(): d for d in (sel.get("scoreBreakdown") or [])}
+    breakdown, wsum, tot = [], 0, 0
+    for dim, w in MATCH_WEIGHTS:
+        sc = max(0, min(100, int((by_dim.get(dim.lower()) or {}).get("score", 0) or 0)))
+        breakdown.append({"dimension": dim, "weight": w, "score": sc,
+                          "note": str((by_dim.get(dim.lower()) or {}).get("note", ""))[:120]})
+        wsum += sc * w
+        tot += w
+    match_percent = round(wsum / tot) if tot else 0
+    cov, miss = sel.get("atsCovered", []), sel.get("atsMissing", [])
+    ats_score = round(100 * len(cov) / max(1, len(cov) + len(miss)))
+
     result = {
-        "status": "ready", "model": "opus", "pdfStatus": "compiling",
+        "status": "ready", "model": "opus", "pdfStatus": "compiling", "jobId": job,
         "resumeLatex": resume_tex, "coverLetterLatex": cover_tex,
-        "matchPercent": sel.get("matchPercent"), "matched": sel.get("matched", []),
-        "gaps": sel.get("gaps", []), "atsCovered": sel.get("atsCovered", []),
-        "atsMissing": sel.get("atsMissing", []), "rationale": sel.get("rationale", ""),
-        "selectedProjects": selected, "customFields": custom, "snapshotKey": f"generated/{job}/resume.tex",
+        "matchPercent": match_percent, "scoreBreakdown": breakdown,
+        "atsScore": ats_score, "matched": sel.get("matched", []),
+        "gaps": sel.get("gaps", []), "atsCovered": cov, "atsMissing": miss,
+        "rationale": sel.get("rationale", ""), "selectedProjects": selected,
+        "customFields": custom, "snapshotKey": f"generated/{job}/resume.tex",
     }
     _snapshot(job, "resume.tex", resume_tex)
     if cover_tex:
@@ -221,6 +252,7 @@ def _run_job(job, params, ctx):
         if pdf:
             s3.put_object(Bucket=DOCS_BUCKET, Key=f"generated/{job}/resume.pdf", Body=pdf, ContentType="application/pdf")
             result["pdfUrl"] = _presign(f"generated/{job}/resume.pdf")
+            result["pdfKey"] = f"generated/{job}/resume.pdf"
             result["pages"] = pages
             if final_tex != resume_tex:               # auto-fit trimmed it
                 result["resumeLatex"] = final_tex
