@@ -4,7 +4,7 @@ Log every application with the exact résumé you applied with, watch its status
 
 > **Personal-use tool.** The *code and infrastructure* are public (it's a portfolio project); the *data* — applications, documents, email classifications — is private, single-user, and gated behind Cognito. Nothing personal lives in this repo.
 
-**Status:** ✅ **All stages built and deployed live.** The tracker (CRUD API, Cognito auth, document storage, dashboard) is running and verified end-to-end; the inbox-scan and nudge Lambdas are deployed on their schedules; the DevSecOps pipeline + classifier unit tests are in place. The one human-in-the-loop step is dropping a Google App Password into Secrets Manager to switch on live email scanning (see [below](#turning-on-live-email-scanning)).
+**Status:** ✅ **All stages built and deployed live.** The tracker (CRUD API, Cognito auth, document storage, dashboard) is running and verified end-to-end. The inbox intelligence is now an **event-driven pipeline** (EventBridge → Scanner → SQS+DLQ → Dispatcher → Step Functions: *Classify → Enrich*) with **Amazon Bedrock** doing the triage; the app **self-monitors** (CloudWatch golden-signals dashboard, SLO alarms → composite health alarm → SNS, X-Ray tracing, a runbook). The DevSecOps pipeline + classifier unit tests are in place. The one human-in-the-loop step is dropping a Google App Password into Secrets Manager to switch on live email scanning (see [below](#turning-on-live-email-scanning)).
 
 ## Why this project
 
@@ -12,39 +12,55 @@ I built this to run my own job search — the best kind of project is one you ac
 
 **Scope guardrail:** this *assists* the search — tracking, email intelligence, reminders, tailored drafts. It does **not** auto-submit applications (that breaks job-board ToS and produces spray-and-pray noise). A human stays in the loop for every apply.
 
-## Target architecture
+## Architecture
+
+The tracker is a straightforward serverless CRUD app; the interesting part is the
+**event-driven inbox pipeline** and the **self-monitoring** layer around it.
 
 ```
-                 React SPA (S3 + CloudFront)
-                          │  Cognito login (single user)
+                 Static SPA (S3 + CloudFront)
+                          │  Cognito login (single user, JWT)
                           ▼
-                 API Gateway → Lambda (CRUD)
-                          │
-            ┌─────────────┼──────────────────────┐
-            ▼             ▼                       ▼
-      DynamoDB       S3 "documents"        Secrets Manager
-    applications    résumés · cover        (email token +
-    email events    letters · JDs          client secret)
-                    (versioned, private,
-                     presigned URLs)
-            ▲
-   EventBridge (schedule)
-        │
-        ▼
-   Lambda "inbox-scan" ──> Gmail (read-only, incremental) → classify → link
-        │
-        ▼
-   EventBridge (schedule) → Lambda "nudge" → SES/SNS  (stale-application reminders)
+                 API Gateway (HTTP API) → Lambda "api" ──► Amazon Bedrock (Claude Haiku)
+                          │                                 JD extraction · résumé match · Ask-AI
+            ┌─────────────┼──────────────┐
+            ▼             ▼              ▼
+      DynamoDB       S3 "documents"   Secrets Manager
+   applications    résumés · JDs      (IMAP app password)
+   email events   (versioned, private)
+
+   INBOX PIPELINE (event-driven, one message per email):
+   EventBridge (6h) → Lambda "scanner" ─────► SQS ──redrive(3x)──► DLQ
+       (read-only IMAP, dedupe,                │
+        cheap pre-filter — no Bedrock)         ▼  (SQS trigger, partial-batch failure reporting)
+                                          Lambda "dispatcher" ─StartSyncExecution─► Step Functions (Express)
+                                                                                    Classify (Bedrock)
+                                                                                       ▼
+                                                                                    Enrich (match app ·
+                                                                                    auto-advance · record)
+   EventBridge (daily) → Lambda "nudge" → SES   (stale-application reminders)
+
+   OBSERVABILITY: CloudWatch golden-signals dashboard · SLO alarms (DLQ depth,
+   workflow failures, API 5xx, pipeline errors) → composite health alarm → SNS ·
+   X-Ray tracing on every Lambda + the state machine · docs/RUNBOOK.md
 
    Shipped by: GitHub Actions (OIDC) · gitleaks · Checkov/tfsec · Trivy · unit tests
 ```
+
+**Why decomposed this way.** The old design was one scheduled Lambda that read the
+inbox *and* called Bedrock *and* wrote to DynamoDB. Splitting it means the expensive,
+failure-prone work (Bedrock, DB writes) is off the ingest path: SQS buffers and
+retries each email independently, a poison message is quarantined in the DLQ instead
+of failing the whole run, and Step Functions gives each step its own retry policy and
+a visible execution history. Every email is now processed exactly-enough-times and
+traceable end to end.
 
 ## How it works
 
 1. You log an application in the dashboard and **attach the résumé you applied with** — the PDF is snapshotted to a private, versioned S3 bucket, so the as-sent copy is frozen even if you later edit that résumé. The dashboard supports search, filtering, and CSV export.
 2. The full record (role details, JD, contacts, the résumé/cover-letter references) lives in DynamoDB behind Cognito auth.
-3. A scheduled **inbox-scan Lambda** reads *new* mail (read-only), syncing **incrementally** so it never re-reads the whole inbox, classifies job-related messages (recruiter reply / rejection / interview / confirmation), and links them to the matching application.
-4. A scheduled **nudge Lambda** finds applications with no response after N days and sends a follow-up reminder via SES/SNS.
+3. A scheduled **scanner Lambda** reads *new* mail (read-only IMAP), skips anything already processed (idempotent) or obviously non-job (a cheap keyword/ATS pre-filter), and drops each candidate onto **SQS**. A **dispatcher** consumes the queue and runs the **`process-email` Step Functions workflow** per message: **Classify** (Amazon Bedrock reads the email and returns structured triage — recruiter reply / rejection / interview / offer / confirmation, plus extracted recruiter, pay, location, interview date), then **Enrich** (match the email to an application, auto-advance the status forward-only, fill missing fields, and record the event). Failures retry per message and land in a **DLQ** after 3 tries — nothing is silently lost.
+4. A scheduled **nudge Lambda** finds applications with no response after N days and sends a follow-up reminder via SES.
 5. The dashboard shows your pipeline (applied → screen → interview → offer/rejected) and analytics.
 6. OAuth/email tokens live in **Secrets Manager**, documents in **S3** via presigned URLs; everything is Terraform + keyless-OIDC CI/CD.
 
@@ -67,14 +83,19 @@ Every application is a rich record, not just a status line:
 |---|---|
 | DynamoDB | Applications + email-event store (the rich record) |
 | S3 (documents) | Immutable, versioned résumé / cover-letter / JD snapshots; presigned upload & download |
-| Lambda | CRUD API, inbox-scan, nudge |
+| Lambda | CRUD API + inbox pipeline (scanner · dispatcher · classify · enrich) + nudge |
 | API Gateway | HTTPS API for the dashboard |
 | Cognito | Single-user auth (personal data isn't public) |
-| EventBridge | Schedules the inbox-scan and nudge jobs |
-| Secrets Manager | Email OAuth token / app password + client secret (never in code) |
-| SES / SNS | Follow-up reminders |
-| S3 + CloudFront | Hosts the React dashboard |
-| Gmail (read-only, incremental) | Least-privilege inbox access |
+| **Amazon Bedrock** (Claude Haiku) | Email triage/extraction, JD field extraction, résumé↔JD match scoring, Ask-AI Q&A |
+| **SQS + DLQ** | Buffers one message per candidate email; retries and quarantines poison messages |
+| **Step Functions** (Express) | Orchestrates `Classify → Enrich` per email, with per-step retries and execution history |
+| EventBridge | Schedules the scanner (6h) and nudge (daily) jobs |
+| Secrets Manager | IMAP app password (never in code) |
+| SES | Follow-up reminders |
+| **CloudWatch + X-Ray** | Golden-signals dashboard, SLO + composite health alarms, distributed tracing |
+| **SNS** | Alert fan-out for the composite service-health alarm |
+| S3 + CloudFront | Hosts the dashboard SPA |
+| Gmail (read-only IMAP) | Least-privilege inbox access |
 | Terraform + GitHub Actions | IaC + keyless CI/CD with security gates (gitleaks · Checkov/tfsec · Trivy) + unit tests |
 
 ## Security decisions
@@ -93,13 +114,16 @@ Every application is a rich record, not just a status line:
 - [x] **Stage 0** — Repo, scoped OIDC deploy role (`jobhunt-*`); account already budget-guarded. Inbox auth path decided at Stage 3 = **IMAP + App Password** (no 7-day-token problem).
 - [x] **Stage 1** — DynamoDB + Lambda CRUD API + vanilla-JS dashboard with **search / filter / stats / CSV export**; **attach the as-sent résumé** (snapshotted to a private, versioned S3 bucket via presigned URLs). Deployed + verified live.
 - [x] **Stage 2** — Cognito auth (USER_PASSWORD_AUTH) + an HTTP API **JWT authorizer** so the dashboard and every route are private. Verified (no-auth → 401).
-- [x] **Stage 3** — Inbox-scan Lambda: **IMAP read-only**, `SINCE`-windowed, rule-based classification with **9 passing unit tests**, credential in Secrets Manager, events linked to applications by contact-email / company. No-ops safely until the credential is set.
+- [x] **Stage 3** — Inbox-scan Lambda: **IMAP read-only**, `SINCE`-windowed, rule-based classification with **10 passing unit tests** (now the keyword *fallback* under Bedrock), credential in Secrets Manager, events linked to applications by contact-email / company. No-ops safely until the credential is set.
 - [x] **Stage 4** — Nudge Lambda (stale-application reminders via **SES**, daily EventBridge schedule) + analytics (funnel, response rate) + **CSV export** in the dashboard.
 - [x] **Stage 5** — Clean Terraform (`validate` clean), **DevSecOps pipeline** (gitleaks · Checkov + tfsec · Trivy) + classifier unit tests + `terraform validate`; documented Checkov baseline.
+- [x] **Stage 6 — Amazon Bedrock (Claude Haiku).** AI email triage + entity extraction (recruiter, pay, location, interview date) that **auto-advances and enriches** the matching application; **JD field extraction** (`/parse-jd`); **JD↔résumé match scoring** with gap analysis (`/{app}/match`); and a natural-language **Ask-AI** Q&A over applications (`/ask`). Keyword classifier kept as the graceful fallback.
+- [x] **Stage 7 — Event-driven backbone.** Decomposed the monolithic scanner into `EventBridge → Scanner → SQS(+DLQ) → Dispatcher → Step Functions Express (Classify → Enrich)`: one message per email, per-message retries, poison-message DLQ isolation, per-step retry policies, and full execution history. Verified end-to-end (synthetic email → workflow SUCCEEDED).
+- [x] **Stage 8 — Self-monitoring.** CloudWatch golden-signals dashboard, SLO alarms (DLQ depth, workflow failures, API 5xx, pipeline errors) rolled into a **composite service-health alarm → SNS**, **X-Ray** tracing on every Lambda + the state machine, and a per-alarm **[runbook](docs/RUNBOOK.md)** — reusing the `cloud-observability-sre` patterns on this app's own stack.
 
 ## Turning on live email scanning
 
-The inbox-scan Lambda is deployed and runs every 6 hours, but no-ops until it has a credential. To switch it on (one time):
+The scanner Lambda is deployed and runs every 6 hours, but no-ops until it has a credential. To switch it on (one time):
 1. In your Google account, enable **2-Step Verification**, then create an **App Password** (Google Account → Security → App passwords) for "Mail".
 2. Make sure **IMAP is enabled** in Gmail (Settings → Forwarding and POP/IMAP).
 3. Put it in the existing Secrets Manager secret `jobhunt/email-credentials`:
@@ -109,34 +133,25 @@ The inbox-scan Lambda is deployed and runs every 6 hours, but no-ops until it ha
    ```
 That's it — the next scheduled run will classify recent mail and link it to your applications. The App Password never expires, is read-only, and can be revoked anytime.
 
-## Future scope — advanced
+## Future scope
 
-The MVP above is deliberately lean. Here's where it goes at the next level:
+Most of the original "advanced" list is now shipped (Bedrock triage/extraction, match
+scoring, Ask-AI — Stage 6; the event-driven backbone — Stage 7; self-monitoring — Stage 8).
+What deliberately remains:
 
-**AI / LLM (Amazon Bedrock)**
-- Smarter classification + **entity extraction** — pull company, role, recruiter, and next-step dates straight from email bodies instead of keyword rules.
-- **JD ↔ résumé match scoring** — paste a job description, get a fit score, a gap analysis, and which of my projects (and *which résumé variant*) to use.
-- **Tailored drafts** — generate follow-ups, cover letters, and outreach from a JD + my résumé/project write-ups (RAG over my own docs).
-- **Interview prep** — from a JD *and the exact résumé I sent that company*, generate likely questions with talking points mapped to my projects.
+**Intentionally left manual (human-in-the-loop, by design)**
+- **Tailored drafts** (follow-ups, cover letters) and **interview prep** are *mine to write* — the tool surfaces the context (the JD, the exact résumé I sent, the match gaps), but the words that go to a human are my job, not the model's. This is a scope choice, not a gap.
 
-**Job ingestion (surface, never auto-apply)**
-- Pull postings from board APIs / RSS (where ToS permits) into a deduped "to-apply" queue, ranked by match score — I still click apply.
-
-**Analytics / ML**
-- Full funnel conversion by source, role, and keyword; **which résumé version converts best**; response-rate and best-time-to-apply insights.
-
-**Architecture & scale (the interesting part)**
-- **Event-driven backbone** — EventBridge + **Step Functions** for the new-email → classify → extract → link → notify workflow; **SQS + DLQ** for reliable async processing.
-- **Multi-provider email** — add Outlook via Microsoft Graph behind a provider abstraction.
-- **Self-monitoring** — reuse my `cloud-observability-sre` patterns (dashboards, alarms, tracing) on this app, tying the portfolio together.
-- **Multi-tenant SaaS mode** — Cognito user pools, per-tenant data isolation, usage metering, and Bedrock token budgeting + caching — turning a personal tool into something others could use. (This is also the point where the OAuth app leaves Testing status and *does* need Google's CASA assessment — see the work-authorization note before monetizing.)
-
-**Security & compliance (advanced)**
-- Per-user KMS keys, **Secrets Manager rotation**, CloudTrail audit logging, PII redaction, and data-retention / delete-my-data (GDPR-style) support.
+**Genuinely next (if this were more than a personal tool)**
+- **Job ingestion (surface, never auto-apply)** — pull postings from board APIs / RSS (where ToS permits) into a deduped "to-apply" queue ranked by match score; I still click apply.
+- **Richer analytics** — funnel conversion by source/role/keyword and **which résumé version converts best**.
+- **Multi-provider email** — Outlook via Microsoft Graph behind a provider abstraction.
+- **Multi-tenant SaaS mode** — Cognito user pools, per-tenant isolation, usage metering, Bedrock token budgeting + caching. (This is where the tool would leave personal-use status and *does* need Google's CASA assessment before monetizing.)
+- **Security & compliance (advanced)** — per-user KMS keys, Secrets Manager rotation, CloudTrail audit logging, PII redaction, and delete-my-data (GDPR-style) support.
 
 ## Cost
 
-Built for the free tier: DynamoDB on-demand, Lambda, EventBridge, Cognito, S3, and SES/SNS at personal volume cost pennies; CloudFront is near-free. Incremental inbox sync keeps API quota (and re-processing cost) minimal. Bedrock (future scope) is pay-per-token — gate it behind budgets and caching. A budget alarm guards the account.
+Built for the free tier. DynamoDB on-demand, Lambda, EventBridge, Cognito, S3, SES, and SNS at personal volume cost pennies; CloudFront is near-free. The event-driven additions stay effectively free at this volume: **SQS** (1M requests/mo free), **Step Functions Express** (billed per request + duration — cents at a few emails/day), and **X-Ray** (100k traces/mo free). Observability sits inside the free tier too: this is the account's 2nd CloudWatch **dashboard** (3 free) and adds 4 metric **alarms** (10 free); the one paid item is the **composite alarm** (~$0.50/mo) — remove `aws_cloudwatch_composite_alarm.service_health` if you want strictly $0. **Bedrock** (Claude Haiku) is pay-per-token but tiny: triage runs only on pre-filtered candidate emails, capped at 300 output tokens each. A budget alarm guards the account.
 
 ---
 

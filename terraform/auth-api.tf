@@ -67,6 +67,11 @@ resource "aws_iam_role_policy_attachment" "api_basic" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
+resource "aws_iam_role_policy_attachment" "api_xray" {
+  role       = aws_iam_role.api.name
+  policy_arn = "arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess"
+}
+
 data "aws_iam_policy_document" "api" {
   statement {
     sid     = "Ddb"
@@ -108,6 +113,7 @@ resource "aws_lambda_function" "api" {
   filename         = data.archive_file.api.output_path
   source_code_hash = data.archive_file.api.output_base64sha256
   timeout          = 30
+  tracing_config { mode = "Active" }
   environment {
     variables = {
       APPS_TABLE   = aws_dynamodb_table.applications.name

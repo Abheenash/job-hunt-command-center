@@ -18,92 +18,10 @@ resource "aws_secretsmanager_secret_version" "email" {
   lifecycle { ignore_changes = [secret_string] } # don't clobber the real value later
 }
 
-# --- inbox-scan Lambda --------------------------------------------------------
-
-data "archive_file" "inbox_scan" {
-  type        = "zip"
-  source_dir  = "${path.module}/../src/inbox_scan"
-  output_path = "${path.module}/build/inbox_scan.zip"
-}
-
-resource "aws_iam_role" "inbox_scan" {
-  name               = "${local.name}-inbox-scan-role"
-  assume_role_policy = data.aws_iam_policy_document.lambda_assume.json
-  tags               = local.tags
-}
-
-resource "aws_iam_role_policy_attachment" "inbox_scan_basic" {
-  role       = aws_iam_role.inbox_scan.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
-}
-
-data "aws_iam_policy_document" "inbox_scan" {
-  statement {
-    # read apps to match, and update them to auto-advance status from email
-    actions   = ["dynamodb:Scan", "dynamodb:GetItem", "dynamodb:PutItem"]
-    resources = [aws_dynamodb_table.applications.arn]
-  }
-  statement {
-    # write findings + scan existing ids for idempotency
-    actions   = ["dynamodb:PutItem", "dynamodb:Scan"]
-    resources = [aws_dynamodb_table.email_events.arn]
-  }
-  statement {
-    actions   = ["secretsmanager:GetSecretValue"]
-    resources = [aws_secretsmanager_secret.email.arn]
-  }
-  statement {
-    # AI email triage (Claude Haiku) — scoped to the one model + inference profile
-    actions = ["bedrock:InvokeModel"]
-    resources = [
-      "arn:aws:bedrock:*::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0",
-      "arn:aws:bedrock:*:${local.acct}:inference-profile/us.anthropic.claude-haiku-4-5-20251001-v1:0",
-    ]
-  }
-}
-
-resource "aws_iam_role_policy" "inbox_scan" {
-  name   = "${local.name}-inbox-scan-policy"
-  role   = aws_iam_role.inbox_scan.id
-  policy = data.aws_iam_policy_document.inbox_scan.json
-}
-
-resource "aws_lambda_function" "inbox_scan" {
-  function_name    = "${local.name}-inbox-scan"
-  role             = aws_iam_role.inbox_scan.arn
-  runtime          = "python3.12"
-  handler          = "lambda_function.handler"
-  filename         = data.archive_file.inbox_scan.output_path
-  source_code_hash = data.archive_file.inbox_scan.output_base64sha256
-  timeout          = 120
-  environment {
-    variables = {
-      APPS_TABLE   = aws_dynamodb_table.applications.name
-      EVENTS_TABLE = aws_dynamodb_table.email_events.name
-      SECRET_ID    = aws_secretsmanager_secret.email.arn
-    }
-  }
-  tags = local.tags
-}
-
-resource "aws_cloudwatch_event_rule" "inbox_scan" {
-  name                = "${local.name}-inbox-scan"
-  schedule_expression = "rate(6 hours)"
-  tags                = local.tags
-}
-
-resource "aws_cloudwatch_event_target" "inbox_scan" {
-  rule = aws_cloudwatch_event_rule.inbox_scan.name
-  arn  = aws_lambda_function.inbox_scan.arn
-}
-
-resource "aws_lambda_permission" "inbox_scan" {
-  statement_id  = "AllowEventBridge"
-  action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.inbox_scan.function_name
-  principal     = "events.amazonaws.com"
-  source_arn    = aws_cloudwatch_event_rule.inbox_scan.arn
-}
+# --- inbox pipeline -----------------------------------------------------------
+# The old monolithic inbox-scan Lambda was decomposed into an event-driven
+# pipeline (EventBridge -> Scanner -> SQS(+DLQ) -> Dispatcher -> Step Functions
+# Express: Classify -> Enrich). See pipeline.tf.
 
 # --- nudge Lambda -------------------------------------------------------------
 

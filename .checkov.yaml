@@ -19,6 +19,9 @@ skip-check:
   # --- encryption: SSE-S3 / AWS-managed keys are sufficient (no CMK $/mo) ------
   - CKV_AWS_145   # S3 SSE-KMS (using SSE-S3/AES256 by choice)
   - CKV_AWS_119   # DynamoDB CMK (default at-rest encryption)
+  - CKV_AWS_26    # SNS topic KMS — messages are alarm-state JSON only (no PII/secrets);
+                  # a CMK ($/mo) would also need a policy granting CloudWatch to publish,
+                  # else alarm notifications silently fail. SQS uses managed SSE.
   # --- Lambda hardening not warranted for a low-traffic personal tool ---------
   - CKV_AWS_50    # Lambda X-Ray tracing
   - CKV_AWS_115   # Lambda reserved concurrency
