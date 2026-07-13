@@ -29,13 +29,23 @@ def test_confirmation():
 
 
 def test_recruiter_reply():
-    assert cat("Hi", "A recruiter came across your profile", "jane@talent.io") == "recruiter_reply"
-    assert cat("Opportunity", "an exciting opportunity for you") == "recruiter_reply"
+    assert cat("Hi", "A recruiter came across your profile on LinkedIn", "jane@x.com") == "recruiter_reply"
+    assert cat("Re: application", "regarding your application for the role", "x@x.com") == "recruiter_reply"
+    assert cat("Hello", "", "recruiting@greenhouse.io") == "recruiter_reply"  # ATS sender domain
 
 
 def test_other_is_not_job_related():
     assert cat("Your Amazon order shipped", "Track your package") == "other"
     assert not is_job_related("Lunch?", "wanna grab lunch")
+
+
+def test_precision_no_false_positives():
+    # exactly the junk that leaked into the feed before the tightening
+    assert cat("Your order confirmation is #5314432487", "", "noreply@online.wingstop.com") == "other"
+    assert cat("You accepted an AWS Marketplace offer", "", "no-reply@marketplace.aws") == "other"
+    assert cat("Verify your email", "", "noreply@zolve.com") == "other"
+    assert cat("Run failed: pipeline", "", "notifications@github.com") == "other"
+    assert cat("50% off!", "special offer just for you", "deals@store.com") == "other"
 
 
 def test_priority_interview_beats_recruiter():

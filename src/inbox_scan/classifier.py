@@ -1,12 +1,10 @@
 """Rule-based classification of job-search emails.
 
-Pure functions, no I/O — so they're fast to unit-test (see test_classifier.py).
-Categories, most-specific first: interview > offer > rejection > recruiter_reply
-> confirmation > other. Returns (category, confidence, matched_terms).
-
-This is intentionally simple and auditable; Bedrock-based extraction is future
-scope. The point of keeping it a pure function with tests is that a bad change
-can't silently start mislabeling mail.
+Pure functions, no I/O — fast to unit-test (see test_classifier.py). Tuned for
+PRECISION over recall: a job-tracker notification feed is useless if it's full of
+Wingstop receipts and GitHub CI emails, so we only classify when a real job
+signal is present. Categories, most-specific first: interview > offer > rejection
+> confirmation > recruiter_reply. Returns (category, confidence, matched_terms).
 """
 import re
 
@@ -19,73 +17,73 @@ RULES = [
         r"\bcalendly\b", r"\bset up a time\b", r"\bmeet with the team\b",
     ]),
     ("offer", [
-        r"\boffer\b", r"\bpleased to offer\b", r"\bextend an offer\b",
-        r"\boffer letter\b", r"\bwelcome (?:aboard|to the team)\b",
+        # deliberately NOT a bare "offer" (matches "special offer", "Marketplace offer")
+        r"\bpleased to offer\b", r"\bextend(?:ing)? (?:you )?an offer\b",
+        r"\bjob offer\b", r"\boffer letter\b", r"\bwelcome (?:aboard|to the team)\b",
+        r"\bwe(?:'| a)re excited to offer\b",
     ]),
     ("rejection", [
         r"\bunfortunately\b", r"\bwe(?:'| a)re not (?:moving|proceeding)\b",
         r"\bnot (?:be )?moving forward\b", r"\bdecided (?:to|not to) (?:move|proceed)\b",
         r"\bother candidates?\b", r"\bwill not be (?:proceeding|progressing)\b",
-        r"\bnot (?:a|the right) (?:fit|match)\b", r"\bwish you (?:the best|luck)\b",
-        r"\bposition has been filled\b", r"\bpursue other\b",
+        r"\bnot (?:a|the right) (?:fit|match)\b", r"\bposition has been filled\b",
+        r"\bpursue other (?:candidates|applicants)\b",
     ]),
-    # Confirmations are specific, so they're checked before the broader
-    # recruiter_reply rules (which must NOT include a bare "your application").
     ("confirmation", [
         r"\bthank you for (?:applying|your application)\b", r"\bapplication (?:received|submitted)\b",
         r"\bwe(?:'| ha)ve received your application\b", r"\bsuccessfully applied\b",
-        r"\bapplication (?:confirmation|has been received)\b",
+        r"\bapplication (?:confirmation|has been received)\b", r"\byour application (?:for|to) .* (?:has been|was) received\b",
     ]),
     ("recruiter_reply", [
-        r"\brecruiter\b", r"\btalent (?:acquisition|team)\b", r"\bsourc(?:er|ing)\b",
-        r"\breach(?:ing)? out\b", r"\bcame across your (?:profile|resume|résumé)\b",
-        r"\bopportunity\b", r"\bhiring (?:manager|team)\b",
+        r"\brecruiter\b", r"\btalent (?:acquisition|team)\b", r"\bsourc(?:er|ing) (?:for|a)\b",
+        r"\bcame across your (?:profile|resume|résumé|linkedin)\b",
+        r"\bregarding your application\b", r"\bfor (?:the|a|this) (?:role|position|opening) (?:at|with)\b",
+        r"\bhiring (?:manager|team) (?:at|for)\b", r"\bjob opportunity\b",
     ]),
 ]
 
-# A weak signal that an email is job-related at all (used to skip noise).
-JOB_HINT = re.compile(
-    r"\b(?:appl(?:y|ied|ication)|interview|recruit|role|position|candidate|hiring|"
-    r"opportunity|resume|résumé|offer|job)\b", re.I)
+# Applicant-tracking-system / recruiting sender domains — a strong signal.
+ATS_DOMAINS = ("greenhouse", "lever.co", "hire.lever", "ashbyhq", "workday", "myworkday",
+               "icims", "smartrecruiters", "jobvite", "taleo", "bamboohr", "workable",
+               "gem.com", "eightfold")
 
 
 def classify(subject: str, body: str, sender: str = ""):
-    """Return (category, confidence 0-1, matched_terms)."""
-    text = f"{subject or ''}\n{body or ''}"
-    low = text.lower()
+    """Return (category, confidence 0-1, matched_terms). 'other' if not job-related."""
+    low = f"{subject or ''}\n{body or ''}".lower()
     for category, patterns in RULES:
         hits = [p for p in patterns if re.search(p, low)]
         if hits:
-            # confidence scales with the number of independent signals.
-            conf = min(1.0, 0.55 + 0.15 * len(hits))
-            return category, round(conf, 2), hits
-    if JOB_HINT.search(low) or _looks_like_recruiter(sender):
-        return "recruiter_reply", 0.4, []
+            return category, round(min(1.0, 0.6 + 0.13 * len(hits)), 2), hits
+    # No keyword rule matched — only trust a recruiting/ATS sender domain.
+    if _from_ats(sender):
+        return "recruiter_reply", 0.5, []
     return "other", 0.0, []
 
 
 def is_job_related(subject: str, body: str, sender: str = "") -> bool:
-    cat, _conf, _ = classify(subject, body, sender)
-    return cat != "other"
+    return classify(subject, body, sender)[0] != "other"
 
 
-def _looks_like_recruiter(sender: str) -> bool:
+def _from_ats(sender: str) -> bool:
     s = (sender or "").lower()
-    return any(k in s for k in ("recruit", "talent", "careers", "jobs", "noreply@", "no-reply@", "hr@"))
+    local = s.split("@")[0]
+    domain = s.split("@")[-1] if "@" in s else ""
+    if any(a in domain for a in ATS_DOMAINS):
+        return True
+    # careers@/jobs@/recruiting@/talent@ style mailboxes (not generic noreply@)
+    return any(local.startswith(k) or ("." + k) in local for k in ("recruit", "talent", "careers", "jobs", "hiring"))
 
 
 def match_company(sender: str, subject: str, body: str, companies) -> str | None:
     """Best-effort link to a tracked application by company name or sender domain."""
     text = f"{subject or ''} {body or ''} {sender or ''}".lower()
     domain = sender.split("@")[-1].lower() if "@" in (sender or "") else ""
-    best = None
     for company in companies:
         c = (company or "").strip().lower()
         if not c:
             continue
-        # domain match (acme.com <- Acme) or name appears in the text
         token = re.sub(r"[^a-z0-9]", "", c.split()[0]) if c.split() else ""
-        if (token and token in domain) or c in text:
-            best = company
-            break
-    return best
+        if (token and len(token) >= 3 and token in domain) or c in text:
+            return company
+    return None
