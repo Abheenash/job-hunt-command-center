@@ -443,10 +443,6 @@ function fillStateSelects() { $("#state-select").innerHTML = `<option value="">â
 function show(authed) {
   $("#login").hidden = authed; $("#app").hidden = !authed;
   if (authed) {
-    const email = localStorage.getItem(LS.email) || "";
-    const c = (email[0] || "A").toUpperCase();
-    $("#who").textContent = email; $("#who2").textContent = email;
-    $("#avatar-i").textContent = c; $("#avatar-i2").textContent = c;
     load().catch((e) => console.error(e));
     loadNotifications();
   }
@@ -459,7 +455,7 @@ $("#login-form").onsubmit = async (e) => {
   finally { $("#login-btn").disabled = false; }
 };
 $("#logout").onclick = logout;
-$("#settings-btn").onclick = () => { $("#settings").hidden = false; $("#pw-msg").textContent = ""; };
+$("#pw-open").onclick = () => { $("#acct-pop").hidden = true; $("#settings").hidden = false; $("#pw-msg").textContent = ""; };
 $("#settings-close").onclick = () => ($("#settings").hidden = true);
 $("#pw-save").onclick = changePassword;
 $("#acct-btn").onclick = (e) => { e.stopPropagation(); togglePop("#acct-pop"); };

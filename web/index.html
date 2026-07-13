@@ -47,12 +47,14 @@
             <div id="notif-list"></div>
           </div>
         </div>
-        <button class="gnav-chip" id="settings-btn"><span class="i">⚙</span><span class="label">Settings</span></button>
         <div class="pop-wrap">
-          <button class="gnav-acct" id="acct-btn"><span class="avatar-i" id="avatar-i">A</span><span class="name" id="who"></span><span class="caret">▾</span></button>
+          <button class="gnav-acct" id="acct-btn"><span class="avatar-i"></span><span class="name">Abheenash Rajolu</span><span class="caret">▾</span></button>
           <div class="pop pop-acct" id="acct-pop" hidden>
-            <div class="pop-acct-head"><span class="avatar-i big" id="avatar-i2">A</span><div><b id="who2"></b><small>Job Tracker</small></div></div>
-            <a href="https://abheenash.com" target="_blank" rel="noopener">↩ Back to portfolio</a>
+            <div class="pop-acct-head"><span class="avatar-i big"></span><div><b>Abheenash Rajolu</b><small>Job Tracker</small></div></div>
+            <a class="acct-mail" href="mailto:abheenash007@gmail.com">✉ abheenash007@gmail.com</a>
+            <button class="acct-link" id="pw-open">🔑 Change password</button>
+            <a href="https://abheenash.com" target="_blank" rel="noopener">↩ Portfolio</a>
+            <a href="https://github.com/Abheenash/job-hunt-command-center" target="_blank" rel="noopener">⌥ Source</a>
             <button class="acct-link" id="logout">Sign out</button>
           </div>
         </div>
@@ -175,10 +177,6 @@
     </section>
 
     <footer class="siteftr">
-      <div class="ftr-left">
-        <a href="https://abheenash.com" target="_blank" rel="noopener">↩ Portfolio</a>
-        <a href="https://github.com/Abheenash/job-hunt-command-center" target="_blank" rel="noopener">Source</a>
-      </div>
       <div class="ftr-right">Built &amp; run on AWS · Cognito · Lambda · DynamoDB · S3 · Bedrock · <span class="ftr-muted">a personal tool by Rajolu Abheenash</span></div>
     </footer>
   </div>
