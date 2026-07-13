@@ -125,10 +125,19 @@
           <div class="page-head"><h1 id="edit-title">Log application</h1></div>
 
           <div class="jd-box">
-            <label>✨ Paste the job description — AI fills the fields for you</label>
-            <textarea id="jd" rows="4" placeholder="Paste the full JD here, then hit Autofill. (The text is saved for interview prep + the match check.)"></textarea>
-            <button type="button" id="autofill" class="btn primary">✨ Autofill from JD</button>
-            <span id="autofill-status" class="filenote"></span>
+            <label>✨ Paste the job description — AI fills the fields, tailors a résumé, and scores the match</label>
+            <textarea id="jd" rows="4" placeholder="Paste the full JD here. (Saved with the application for interview prep + the match check.)"></textarea>
+            <div class="jd-actions">
+              <button type="button" id="autofill" class="btn">✨ Autofill fields</button>
+              <button type="button" id="gen-resume" class="btn primary">📄 Generate tailored résumé</button>
+              <select id="gen-model" class="sortsel" title="Which model writes the résumé">
+                <option value="sonnet">Sonnet · fast</option>
+                <option value="opus">Opus · best</option>
+              </select>
+              <label class="check2 inline"><input type="checkbox" id="gen-cover" /> + cover letter</label>
+              <span id="autofill-status" class="filenote"></span>
+            </div>
+            <div id="gen-out" class="gen-out" hidden></div>
           </div>
 
           <form id="app-form" class="editcard grid2">
@@ -144,7 +153,7 @@
             <label>Work mode<select name="workMode"><option value="">—</option><option>Remote</option><option>Hybrid</option><option>On-site</option></select></label>
             <label>Seniority<input name="seniority" placeholder="Junior / Mid / Senior" /></label>
             <label>Salary range<input name="salary" placeholder="$120k–$150k" /></label>
-            <label>Source<select name="source"><option value="">—</option><option>LinkedIn</option><option>Referral</option><option>Company site</option><option>Indeed</option><option>Other</option></select></label>
+            <label>Source<select name="source"><option value="">—</option><option>LinkedIn</option><option>Referral</option><option>Company site</option><option>Indeed</option><option>Dice</option><option>Other</option></select></label>
             <label>Posting URL<input name="url" type="url" placeholder="https://…" /></label>
             <label class="check2"><input type="checkbox" name="sponsors" /> Sponsors / accepts OPT</label>
             <label>Recruiter name<input name="contactName" /></label>
@@ -154,6 +163,11 @@
             <label>Tags (comma-sep)<input name="tags" placeholder="aws, remote, devops" /></label>
             <label class="full">Required skills<input name="requiredSkills" placeholder="auto-filled from the JD" /></label>
             <label class="full">Nice to have<input name="niceToHave" placeholder="auto-filled from the JD" /></label>
+            <div class="full customfields">
+              <div class="cf-head"><label>Custom fields / tags</label><button type="button" id="cf-add" class="btn sm">+ Add field</button></div>
+              <div id="cf-rows"></div>
+              <p class="filenote">For anything without its own box — e.g. “Clearance: TS/SCI”, “Team: Platform”, “Visa: cap-exempt”. Add fields on the fly; they’re saved with the application, no code change needed.</p>
+            </div>
             <label class="full">Résumé you applied with (PDF)<input type="file" id="resume" accept="application/pdf" /><span id="resume-status" class="filenote"></span></label>
             <div class="full docs" id="docs"></div>
             <div class="full sheet-actions">

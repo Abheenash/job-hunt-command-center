@@ -274,6 +274,9 @@ function renderDetail(a) {
           ${kvRow("Next action", a.nextAction)}
           ${kvRow("Due", a.nextDue)}
         </div></div>
+        ${(a.attributes && a.attributes.length) ? `<div class="container"><div class="container-head">Custom fields</div><div class="container-body kv">
+          ${a.attributes.map((x) => `<div><span>${esc(x.key)}</span><b>${esc(x.value)}</b></div>`).join("")}
+        </div></div>` : ""}
         ${(a.contactName || a.contactEmail) ? `<div class="container"><div class="container-head">Contact</div><div class="container-body kv">
           ${kvRow("Recruiter", a.contactName)}
           ${a.contactEmail ? `<div><span>Email</span><b><a href="mailto:${esc(a.contactEmail)}">${esc(a.contactEmail)}</a></b></div>` : ""}
@@ -335,6 +338,8 @@ function openEdit(id) {
   $("#e-back-label").textContent = id ? "Back to application" : "Back to list";
   $("#form-err").textContent = ""; $("#resume-status").textContent = ""; $("#resume").value = ""; $("#autofill-status").textContent = "";
   $("#jd").value = a.jd || "";
+  populateCf(a.attributes);
+  lastGen = null; $("#gen-out").hidden = true; $("#gen-out").innerHTML = ""; $("#gen-cover").checked = false;
   FORM_FIELDS.forEach((k) => { if (f[k] != null) f[k].value = a[k] || ""; });
   if (!f.status.value) f.status.value = "applied";
   if (!f.dateApplied.value) f.dateApplied.value = today();
@@ -368,6 +373,81 @@ async function autofill() {
   finally { $("#autofill").disabled = false; }
 }
 
+// ---------- résumé generator (JD -> tailored 2-page / 4-project résumé) ------
+let lastGen = null;
+
+async function generateResume() {
+  const jd = $("#jd").value.trim();
+  const out = $("#gen-out");
+  out.hidden = false;
+  if (jd.length < 40) { out.innerHTML = `<p class="err">Paste a fuller job description first (a few lines).</p>`; return; }
+  const f = $("#app-form");
+  const btn = $("#gen-resume");
+  const model = $("#gen-model").value;
+  btn.disabled = true;
+  out.innerHTML = `<p class="gen-loading">📄 ${model === "opus" ? "Opus" : "Sonnet"} is picking your best 4 projects and tailoring the résumé to this JD…</p>`;
+  try {
+    const r = await api("POST", "/generate-resume", {
+      jd, model, coverLetter: $("#gen-cover").checked,
+      company: f.company.value.trim(), role: f.title.value.trim(),
+    });
+    lastGen = r;
+    renderGenOut(r);
+  } catch (e) { out.innerHTML = `<p class="err">${esc(e.message)}</p>`; }
+  finally { btn.disabled = false; }
+}
+
+const gchips = (list, cls) => (list && list.length ? list.map((x) => `<span class="gchip ${cls}">${esc(x)}</span>`).join("") : `<span class="filenote">none</span>`);
+
+function renderGenOut(r) {
+  const out = $("#gen-out");
+  const projs = (r.selectedProjects || []).map((p) => esc((p.name || "").replace(/\\&/g, "&"))).join(" · ");
+  out.innerHTML = `
+    <div class="gen-top">
+      <div class="gen-score"><b>${r.matchPercent != null ? r.matchPercent + "%" : "—"}</b><span>JD match</span></div>
+      <div class="gen-meta"><b>Projects picked:</b> ${projs || "—"}<div class="filenote">${esc(r.rationale || "")}</div></div>
+    </div>
+    <div class="gen-cols">
+      <div><div class="gen-h">✓ Matched</div>${gchips(r.matched, "ok")}</div>
+      <div><div class="gen-h">⚠ Gaps</div>${gchips(r.gaps, "gap")}</div>
+      <div><div class="gen-h">ATS keywords missing</div>${gchips(r.atsMissing, "miss")}</div>
+    </div>
+    <div class="gen-actions">
+      <button type="button" class="btn primary" id="gen-dl">⬇ Download résumé .tex</button>
+      <button type="button" class="btn" id="gen-copy">⧉ Copy LaTeX</button>
+      ${r.coverLetterLatex ? `<button type="button" class="btn" id="gen-dl-cover">⬇ Cover letter .tex</button>` : ""}
+      <span class="filenote">Compile locally → upload the PDF below → Save.</span>
+    </div>
+    <details class="gen-src"><summary>Preview LaTeX</summary><pre>${esc(r.resumeLatex || "")}</pre></details>`;
+  $("#gen-dl").onclick = () => downloadText("resume-tailored.tex", r.resumeLatex);
+  $("#gen-copy").onclick = () => navigator.clipboard.writeText(r.resumeLatex || "").then(() => ($("#gen-copy").textContent = "Copied ✓"));
+  if (r.coverLetterLatex) $("#gen-dl-cover").onclick = () => downloadText("cover-letter.tex", r.coverLetterLatex);
+}
+
+function downloadText(name, text) {
+  const url = URL.createObjectURL(new Blob([text || ""], { type: "text/plain" }));
+  const link = document.createElement("a"); link.href = url; link.download = name; link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+// ---------- custom fields (dynamic attributes — no code change per new field) -
+function cfRow(key = "", value = "") {
+  const row = document.createElement("div");
+  row.className = "cf-row";
+  row.innerHTML = `<input class="cf-k" placeholder="Field (e.g. Clearance)" value="${esc(key)}" />
+    <input class="cf-v" placeholder="Value (e.g. TS/SCI)" value="${esc(value)}" />
+    <button type="button" class="cf-del" title="Remove field">✕</button>`;
+  row.querySelector(".cf-del").onclick = () => row.remove();
+  return row;
+}
+function populateCf(attrs) {
+  const box = $("#cf-rows"); box.innerHTML = "";
+  (attrs || []).forEach((a) => box.appendChild(cfRow(a.key, a.value)));
+}
+function collectCf() {
+  return $$("#cf-rows .cf-row").map((r) => ({ key: r.querySelector(".cf-k").value.trim(), value: r.querySelector(".cf-v").value.trim() })).filter((a) => a.key);
+}
+
 async function saveApp(e) {
   e.preventDefault();
   const f = $("#app-form");
@@ -377,6 +457,11 @@ async function saveApp(e) {
   const rec = { jd: $("#jd").value.trim() };
   FORM_FIELDS.forEach((k) => (rec[k] = f[k].value.trim ? f[k].value.trim() : f[k].value));
   rec.sponsors = f.sponsors.checked;
+  rec.attributes = collectCf();
+  if (lastGen) {
+    if (lastGen.matchPercent != null) { rec.matchPercent = lastGen.matchPercent; rec.matchedAt = Math.floor(Date.now() / 1000); }
+    if (lastGen.snapshotKey) rec.generatedResumeKey = lastGen.snapshotKey;
+  }
   $("#save").disabled = true; $("#form-err").textContent = "";
   try {
     let saved = editing ? await api("PUT", "/applications/" + editing, rec) : await api("POST", "/applications", rec);
@@ -510,6 +595,8 @@ $("#add").onclick = () => openEdit(null);
 $("#cancel").onclick = cancelEdit;
 $("#e-back").onclick = cancelEdit;
 $("#autofill").onclick = autofill;
+$("#gen-resume").onclick = generateResume;
+$("#cf-add").onclick = () => $("#cf-rows").appendChild(cfRow());
 $("#app-form").onsubmit = saveApp;
 $("#export").onclick = exportCsv;
 $("#activity-btn").onclick = () => ($("#activity").hidden = !$("#activity").hidden);
