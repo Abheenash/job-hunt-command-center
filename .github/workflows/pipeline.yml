@@ -66,6 +66,9 @@ jobs:
       - name: Classifier tests
         working-directory: src/classify
         run: python -m pytest -q
+      - name: Résumé renderer tests
+        working-directory: src/resume_gen
+        run: python -m pytest -q
 
   validate:
     name: Terraform validate
