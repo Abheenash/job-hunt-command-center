@@ -352,3 +352,5 @@ main { flex: 1; min-width: 0; padding: 1.1rem 1.5rem 2rem; max-width: 1180px; }
 .an-tbl { border-collapse: collapse; font-size: .82rem; }
 .an-tbl th, .an-tbl td { text-align: left; padding: 4px 16px 4px 0; border-bottom: 1px solid var(--border-soft); }
 .an-tbl th { color: var(--muted); font-weight: 600; }
+.prospect-desc { color: var(--muted); font-size: .82rem; margin: .4rem 0; }
+.card-actions { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .6rem; }

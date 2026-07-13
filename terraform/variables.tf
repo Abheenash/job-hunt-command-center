@@ -31,3 +31,9 @@ variable "bedrock_budget_usd" {
   type        = number
   default     = 15
 }
+
+variable "feed_url" {
+  description = "Job-feed URL for prospect ingestion (JSON or RSS/Atom). Empty = disabled."
+  type        = string
+  default     = ""
+}

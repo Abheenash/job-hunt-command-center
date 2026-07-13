@@ -68,6 +68,7 @@
         <nav class="views" id="views">
           <button class="chip view on" data-v="all">📋 All applications</button>
           <button class="chip view" data-v="todo">⏰ Follow-ups<span id="todo-count">0</span></button>
+          <button class="chip view" data-v="prospects">🧲 Prospects<span id="prospects-count">0</span></button>
         </nav>
         <div class="side-sub">Status</div>
         <nav id="filters"></nav>
@@ -120,6 +121,9 @@
 
         <!-- FOLLOW-UPS VIEW (rendered by JS) -->
         <div id="todo-view" hidden></div>
+
+        <!-- PROSPECTS VIEW (rendered by JS) -->
+        <div id="prospects-view" hidden></div>
 
         <!-- EDIT VIEW (inline, page-style) -->
         <div id="edit-view" hidden>

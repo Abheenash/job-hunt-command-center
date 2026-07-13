@@ -13,6 +13,7 @@ const FORM_FIELDS = ["company", "title", "dateApplied", "status", "priority", "l
 const fmtDate = (epoch) => { try { return new Date(epoch * 1000).toISOString().slice(0, 10); } catch (_e) { return ""; } };
 
 let APPS = [];
+let PROSPECTS = [];
 let editing = null, currentDetail = null;
 let filterStatus = "all", filterState = "", filterDate = "", filterOpt = false, query = "", sortBy = "updated";
 
@@ -190,7 +191,7 @@ function renderActivity() {
 }
 
 // ---------- detail view (portfolio-style) ----------------------------------
-function showOnly(sel) { ["#list-view", "#detail-view", "#edit-view", "#todo-view"].forEach((s) => ($(s).hidden = s !== sel)); }
+function showOnly(sel) { ["#list-view", "#detail-view", "#edit-view", "#todo-view", "#prospects-view"].forEach((s) => ($(s).hidden = s !== sel)); }
 function openDetail(id) { const a = APPS.find((x) => x.appId === id); if (!a) return; currentDetail = id; renderDetail(a); showOnly("#detail-view"); window.scrollTo(0, 0); }
 function closeDetail() { currentDetail = null; showOnly(currentView === "todo" ? "#todo-view" : "#list-view"); }
 
@@ -198,7 +199,9 @@ let currentView = "all";
 function setView(v) {
   currentView = v; currentDetail = null;
   $$("#views .view").forEach((b) => b.classList.toggle("on", b.dataset.v === v));
-  if (v === "todo") { renderTodo(); showOnly("#todo-view"); } else { showOnly("#list-view"); }
+  if (v === "todo") { renderTodo(); showOnly("#todo-view"); }
+  else if (v === "prospects") { renderProspects(); showOnly("#prospects-view"); }
+  else { showOnly("#list-view"); }
 }
 
 // ---------- follow-ups (next action + due + importance) --------------------
@@ -571,6 +574,51 @@ function exportCsv() {
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
+// ---------- prospects (ingested job feed, surface-only) --------------------
+async function loadProspects() {
+  try { PROSPECTS = (await api("GET", "/prospects")).prospects || []; } catch (_e) { PROSPECTS = []; }
+  const c = $("#prospects-count"); if (c) c.textContent = PROSPECTS.length;
+}
+async function renderProspects() {
+  const el = $("#prospects-view");
+  el.innerHTML = `<div class="page-head"><div><h1>🧲 Prospects</h1><p class="sub">Postings pulled from your configured feed. Review and Track — the tool never applies for you.</p></div></div>
+    <div id="prospects-list" class="grid projects-grid"></div><p id="prospects-empty" class="empty" hidden></p>`;
+  await loadProspects();
+  if (!PROSPECTS.length) {
+    $("#prospects-empty").hidden = false;
+    $("#prospects-empty").innerHTML = `No prospects yet. Set the <b>feed_url</b> Terraform variable to a job feed (JSON or RSS/Atom) and they'll appear here every 12 hours.`;
+    return;
+  }
+  $("#prospects-list").innerHTML = PROSPECTS.map((p) => `<article class="card">
+      <h3>${esc(p.title || "(untitled)")}</h3>
+      <p class="sub">${esc(p.company || "")}${p.location ? ` · ${esc(p.location)}` : ""}</p>
+      <p class="prospect-desc">${esc((p.description || "").slice(0, 220))}${(p.description || "").length > 220 ? "…" : ""}</p>
+      <div class="card-actions">
+        ${p.url ? `<a class="btn" href="${esc(p.url)}" target="_blank" rel="noopener">↗ View</a>` : ""}
+        <button class="btn primary" data-track="${esc(p.id)}">＋ Track</button>
+        <button class="btn" data-dismiss="${esc(p.id)}">Dismiss</button>
+      </div></article>`).join("");
+  $$("#prospects-list [data-track]").forEach((b) => (b.onclick = () => trackProspect(PROSPECTS.find((x) => x.id === b.dataset.track))));
+  $$("#prospects-list [data-dismiss]").forEach((b) => (b.onclick = () => dismissProspect(b.dataset.dismiss)));
+}
+function trackProspect(p) {
+  if (!p) return;
+  openEdit(null);
+  const f = $("#app-form");
+  if (p.company) f.company.value = p.company;
+  if (p.title) f.title.value = p.title;
+  if (p.url) f.url.value = p.url;
+  if (p.location) f.location.value = p.location;
+  $("#jd").value = p.description || "";
+  dismissProspect(p.id, true); // it's an application now — clear it from the queue
+}
+async function dismissProspect(id, silent) {
+  try { await api("DELETE", "/prospects/" + encodeURIComponent(id)); } catch (_e) { /* ignore */ }
+  PROSPECTS = PROSPECTS.filter((p) => p.id !== id);
+  const c = $("#prospects-count"); if (c) c.textContent = PROSPECTS.length;
+  if (!silent && currentView === "prospects") renderProspects();
+}
+
 // ---------- conversion analytics -------------------------------------------
 const _RANK = { applied: 1, screen: 2, interview: 3, offer: 4, rejected: 1, ghosted: 1 };
 function _maxStage(a) {
@@ -668,6 +716,7 @@ function show(authed) {
   if (authed) {
     load().catch((e) => console.error(e));
     loadNotifications();
+    loadProspects();
   }
 }
 
