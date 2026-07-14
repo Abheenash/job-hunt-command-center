@@ -1,10 +1,10 @@
-# Job Hunt Command Center — a serverless dashboard that tracks applications, remembers what you sent, and reads your inbox for you
+# Job Hunt Command Center — a serverless platform that generates JD-tailored résumés, tracks applications, and reads your inbox for you
 
-Log every application with the exact résumé you applied with, watch its status, and let a scheduled Lambda scan your inbox to classify recruiter replies, rejections, and interview invites — so the whole search lives in one place instead of your head and a messy inbox.
+Paste a job description and get a **tailored 2-page résumé** (LaTeX + PDF, written by Amazon Bedrock, scored against a match rubric and ATS keywords); log every application with the exact résumé you sent; and let an **event-driven pipeline** scan your inbox to classify recruiter replies, rejections, and interviews and auto-advance the right application — so the whole search lives in one place instead of your head and a messy inbox.
 
 > **Personal-use tool.** The *code and infrastructure* are public (it's a portfolio project); the *data* — applications, documents, email classifications — is private, single-user, and gated behind Cognito. Nothing personal lives in this repo.
 
-**Status:** ✅ **All stages built and deployed live.** The tracker (CRUD API, Cognito auth, document storage, dashboard) is running and verified end-to-end. The inbox intelligence is now an **event-driven pipeline** (EventBridge → Scanner → SQS+DLQ → Dispatcher → Step Functions: *Classify → Enrich*) with **Amazon Bedrock** doing the triage; the app **self-monitors** (CloudWatch golden-signals dashboard, SLO alarms → composite health alarm → SNS, X-Ray tracing, a runbook). The DevSecOps pipeline + classifier unit tests are in place. The one human-in-the-loop step is dropping a Google App Password into Secrets Manager to switch on live email scanning (see [below](#turning-on-live-email-scanning)).
+**Status:** ✅ **All stages built and deployed live.** Headline feature: an **AI résumé generator** — paste a JD, get a tailored 2-page résumé (LaTeX + server-compiled PDF) written by **Amazon Bedrock** (model-selectable: Sonnet / Haiku / Opus), scored with a weighted match rubric + ATS keyword rate, with AI-suggested tags, length auto-fit, and an optional cover letter. The tracker (CRUD API, Cognito auth, versioned document storage, dashboard, conversion analytics) is verified end-to-end. Inbox intelligence is an **event-driven pipeline** (EventBridge → Scanner → SQS+DLQ → Dispatcher → Step Functions: *Classify → Enrich*); the app **self-monitors** (CloudWatch golden-signals dashboard, SLO alarms → composite health alarm → SNS, X-Ray, runbook) with an **AWS Budgets** guard on Bedrock spend and a **weekly SES digest**. Shipped through a DevSecOps CI/CD pipeline. The one human-in-the-loop step is dropping a Google App Password into Secrets Manager to switch on live email scanning (see [below](#turning-on-live-email-scanning)).
 
 ## Why this project
 
@@ -83,15 +83,17 @@ Every application is a rich record, not just a status line:
 |---|---|
 | DynamoDB | Applications + email-event store (the rich record) |
 | S3 (documents) | Immutable, versioned résumé / cover-letter / JD snapshots; presigned upload & download |
-| Lambda | CRUD API + inbox pipeline (scanner · dispatcher · classify · enrich) + nudge |
+| Lambda | CRUD API + **résumé generator** + inbox pipeline (scanner · dispatcher · classify · enrich) + nudge + digest |
 | API Gateway | HTTPS API for the dashboard |
 | Cognito | Single-user auth (personal data isn't public) |
-| **Amazon Bedrock** (Claude Haiku) | Email triage/extraction, JD field extraction, résumé↔JD match scoring, Ask-AI Q&A |
+| **Amazon Bedrock** (Claude) | **Résumé generation** (Sonnet/Haiku/Opus), email triage/extraction, JD field extraction, résumé↔JD match scoring, Ask-AI Q&A |
+| **tectonic layer** | Server-side LaTeX→PDF compile for generated résumés (bundled package cache) |
 | **SQS + DLQ** | Buffers one message per candidate email; retries and quarantines poison messages |
 | **Step Functions** (Express) | Orchestrates `Classify → Enrich` per email, with per-step retries and execution history |
-| EventBridge | Schedules the scanner (6h) and nudge (daily) jobs |
+| EventBridge | Schedules the scanner (6h), nudge (daily), digest (weekly) jobs |
 | Secrets Manager | IMAP app password (never in code) |
-| SES | Follow-up reminders |
+| SES | Follow-up reminders + weekly digest |
+| **AWS Budgets** | Spend guard on Amazon Bedrock (email alert at threshold) |
 | **CloudWatch + X-Ray** | Golden-signals dashboard, SLO + composite health alarms, distributed tracing |
 | **SNS** | Alert fan-out for the composite service-health alarm |
 | S3 + CloudFront | Hosts the dashboard SPA |
@@ -120,6 +122,8 @@ Every application is a rich record, not just a status line:
 - [x] **Stage 6 — Amazon Bedrock (Claude Haiku).** AI email triage + entity extraction (recruiter, pay, location, interview date) that **auto-advances and enriches** the matching application; **JD field extraction** (`/parse-jd`); **JD↔résumé match scoring** with gap analysis (`/{app}/match`); and a natural-language **Ask-AI** Q&A over applications (`/ask`). Keyword classifier kept as the graceful fallback.
 - [x] **Stage 7 — Event-driven backbone.** Decomposed the monolithic scanner into `EventBridge → Scanner → SQS(+DLQ) → Dispatcher → Step Functions Express (Classify → Enrich)`: one message per email, per-message retries, poison-message DLQ isolation, per-step retry policies, and full execution history. Verified end-to-end (synthetic email → workflow SUCCEEDED).
 - [x] **Stage 8 — Self-monitoring.** CloudWatch golden-signals dashboard, SLO alarms (DLQ depth, workflow failures, API 5xx, pipeline errors) rolled into a **composite service-health alarm → SNS**, **X-Ray** tracing on every Lambda + the state machine, and a per-alarm **[runbook](docs/RUNBOOK.md)** — reusing the `cloud-observability-sre` patterns on this app's own stack.
+- [x] **Stage 9 — AI résumé generator.** Paste a JD → a dedicated async Lambda has **Amazon Bedrock** (model-selectable: Claude Sonnet 4.6 / Haiku / Opus) rewrite the résumé to fit it, returning **structured JSON** that the Lambda renders into LaTeX deterministically (so it always compiles and can never fabricate facts outside the candidate corpus). Produces a **2-page LaTeX + server-compiled PDF** (bundled **tectonic** Lambda layer) with **length auto-fit**, a **weighted match-score rubric + ATS keyword-match rate** (the same standard as the `/match` check), AI-suggested custom fields, and an optional cover letter. Async job + poll (Opus can exceed API Gateway's 30s cap); PDF auto-attaches to the application on save.
+- [x] **Stage 10 — Analytics, digest & cost guards.** Conversion analytics (funnel, response rate by source, résumé-match-vs-outcome); a **weekly SES digest** of the pipeline; an **AWS Budgets** alarm on Amazon Bedrock spend; expanded unit tests (scanner + enrich + renderer) in CI. Prospect ingestion was prototyped and removed (kept the tool focused).
 
 ## Turning on live email scanning
 
