@@ -1,4 +1,7 @@
-"""resume-gen Lambda — JD -> tailored résumé (LaTeX + best-effort PDF), Opus-only.
+"""resume-gen Lambda — JD -> tailored résumé (LaTeX + best-effort PDF).
+
+Model is selectable per generation (Sonnet default; Haiku for cheap bulk, Opus for
+the highest-stakes roles). Sonnet is the quality/cost sweet spot.
 
 Routes (all behind the Cognito JWT authorizer):
   POST /generate-resume        -> start an async job, returns {jobId}
@@ -37,25 +40,33 @@ EXTRA_SKILLS_KEY = "profile/extra-skills.json"
 TECTONIC = "/opt/bin/tectonic"
 BADGE_PNG = "aws-certified-solutions-architect-associate.png"
 
-# Primary = latest Opus; auto-fall-back to 4.5 if 4.8 access hasn't propagated yet,
-# so generation never breaks and upgrades itself the moment 4.8 is granted.
-MODEL = "us.anthropic.claude-opus-4-8"
-MODEL_FALLBACK = "us.anthropic.claude-opus-4-5-20251101-v1:0"
+# Selectable model tiers. Each is a fallback chain: try the newest, drop to an
+# accessible version on AccessDenied (e.g. Opus 4.8 -> 4.5 until 4.8 is granted).
+# Sonnet is the default — the quality/cost sweet spot for résumé writing.
+MODELS = {
+    "haiku":  [("us.anthropic.claude-haiku-4-5-20251001-v1:0", "haiku-4.5")],
+    "sonnet": [("us.anthropic.claude-sonnet-4-6", "sonnet-4.6"),
+               ("us.anthropic.claude-sonnet-4-5-20250929-v1:0", "sonnet-4.5")],
+    "opus":   [("us.anthropic.claude-opus-4-8", "opus-4.8"),
+               ("us.anthropic.claude-opus-4-5-20251101-v1:0", "opus-4.5")],
+}
+DEFAULT_MODEL = "sonnet"
 
 
-def _invoke_opus(payload):
-    """Try Opus 4.8, fall back to 4.5 only on an access-not-granted error."""
+def _invoke(model_key, payload):
+    """Invoke the chosen tier; fall back within the tier on an access error."""
+    chain = MODELS.get(model_key) or MODELS[DEFAULT_MODEL]
     body = json.dumps(payload)
-    for model_id, tag in ((MODEL, "opus-4.8"), (MODEL_FALLBACK, "opus-4.5")):
+    for i, (model_id, tag) in enumerate(chain):
         try:
             resp = bedrock.invoke_model(modelId=model_id, body=body)
             return json.loads(resp["body"].read())["content"][0]["text"], tag
         except ClientError as e:
-            if e.response.get("Error", {}).get("Code") == "AccessDeniedException" and model_id != MODEL_FALLBACK:
-                print(f"{model_id} not accessible yet — falling back to {MODEL_FALLBACK}")
+            if e.response.get("Error", {}).get("Code") == "AccessDeniedException" and i < len(chain) - 1:
+                print(f"{model_id} not accessible — falling back")
                 continue
             raise
-    raise RuntimeError("no Opus model available")
+    raise RuntimeError("no model available")
 
 SYSTEM = (
     "You are an expert technical résumé writer tailoring ONE candidate's résumé to ONE "
@@ -167,7 +178,8 @@ def _start_job(event):
     job = uuid.uuid4().hex
     params = {"jd": jd, "coverLetter": bool(body.get("coverLetter")),
               "company": (body.get("company") or "").strip(), "role": (body.get("role") or "").strip(),
-              "template": body.get("template") if body.get("template") in T.TEMPLATES else "standard"}
+              "template": body.get("template") if body.get("template") in T.TEMPLATES else "standard",
+              "model": body.get("model") if body.get("model") in MODELS else DEFAULT_MODEL}
     lam.invoke(FunctionName=SELF, InvocationType="Event",
                Payload=json.dumps({"_job": job, "params": params}).encode("utf-8"))
     return _resp(202, {"jobId": job, "status": "pending"})
@@ -214,6 +226,7 @@ def _run_job(job, params, ctx):
     company = (params.get("company") or "").strip()
     role = (params.get("role") or "").strip()
     template = params.get("template") if params.get("template") in T.TEMPLATES else "standard"
+    model_key = params.get("model") if params.get("model") in MODELS else DEFAULT_MODEL
     extras = _load_extras()
 
     user = (
@@ -225,7 +238,7 @@ def _run_job(job, params, ctx):
     payload = {"anthropic_version": "bedrock-2023-05-31", "max_tokens": 4096, "temperature": 0.3,
                "system": SYSTEM, "messages": [{"role": "user", "content": [{"type": "text", "text": user}]}]}
     try:
-        text, model_tag = _invoke_opus(payload)
+        text, model_tag = _invoke(model_key, payload)
         sel = json.loads(_first_json(text))
     except Exception as e:  # noqa: BLE001
         print(f"generate failed: {type(e).__name__}: {e}")

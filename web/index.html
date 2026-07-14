@@ -136,7 +136,11 @@
             <div class="jd-actions">
               <button type="button" id="autofill" class="btn">✨ Autofill fields</button>
               <button type="button" id="gen-resume" class="btn primary">📄 Generate tailored résumé</button>
-              <span class="gen-badge" title="Written by Claude Opus">Opus</span>
+              <select id="gen-model" class="sortsel" title="Which model writes it — affects quality & cost">
+                <option value="sonnet">Sonnet · balanced ~5¢</option>
+                <option value="haiku">Haiku · cheapest ~2¢</option>
+                <option value="opus">Opus · best ~25¢</option>
+              </select>
               <select id="gen-template" class="sortsel" title="Résumé style">
                 <option value="standard">Style: Standard</option>
                 <option value="modern">Style: Modern</option>

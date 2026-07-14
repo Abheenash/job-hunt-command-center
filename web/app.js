@@ -392,11 +392,13 @@ async function generateResume() {
   const f = $("#app-form");
   const btn = $("#gen-resume");
   btn.disabled = true;
-  out.innerHTML = `<p class="gen-loading">📄 Opus is rewriting your résumé for this JD — picking projects, tailoring bullets & skills… <span class="filenote">(~30–45s)</span></p>`;
+  const mName = { sonnet: "Sonnet", haiku: "Haiku", opus: "Opus" }[$("#gen-model").value] || "Sonnet";
+  out.innerHTML = `<p class="gen-loading">📄 ${mName} is rewriting your résumé for this JD — picking projects, tailoring bullets & skills… <span class="filenote">(~20–45s)</span></p>`;
   try {
     // Opus can exceed the API's 30s cap, so this is async: start a job, then poll.
     const { jobId } = await api("POST", "/generate-resume", {
       coverLetter: $("#gen-cover").checked, jd, template: $("#gen-template").value,
+      model: $("#gen-model").value,
       company: f.company.value.trim(), role: f.title.value.trim(),
     });
     if (!jobId) throw new Error("could not start generation");
@@ -451,7 +453,7 @@ function renderGenOut(r) {
   out.innerHTML = `
     <div class="gen-top">
       <div class="gen-score"><b>${r.matchPercent != null ? r.matchPercent + "%" : "—"}</b><span>weighted fit</span></div>
-      <div class="gen-meta"><b>Projects picked:</b> ${projs || "—"}<div class="filenote">${esc(r.rationale || "")}</div>${breakdownHtml(r.scoreBreakdown)}</div>
+      <div class="gen-meta"><b>Projects picked:</b> ${projs || "—"} ${r.model ? `<span class="gen-badge">${esc(r.model)}</span>` : ""}<div class="filenote">${esc(r.rationale || "")}</div>${breakdownHtml(r.scoreBreakdown)}</div>
     </div>
     <div class="gen-cols">
       <div><div class="gen-h">✓ Matched</div>${gchips(r.matched, "ok")}</div>
@@ -750,6 +752,12 @@ $("#e-back").onclick = cancelEdit;
 $("#autofill").onclick = autofill;
 $("#gen-resume").onclick = generateResume;
 $("#cf-add").onclick = () => $("#cf-rows").appendChild(cfRow());
+// remember the model + style choice across generations (so Haiku stays picked for bulk)
+["gen-model", "gen-template"].forEach((id) => {
+  const el = $("#" + id), k = "jhcc_" + id, saved = localStorage.getItem(k);
+  if (el && saved) el.value = saved;
+  if (el) el.onchange = () => localStorage.setItem(k, el.value);
+});
 $("#app-form").onsubmit = saveApp;
 $("#export").onclick = exportCsv;
 $("#activity-btn").onclick = () => ($("#activity").hidden = !$("#activity").hidden);
