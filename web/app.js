@@ -593,7 +593,7 @@ async function renderProspects() {
   }
   $("#prospects-list").innerHTML = PROSPECTS.map((p) => `<article class="card">
       <h3>${esc(p.title || "(untitled)")}</h3>
-      <p class="sub">${esc(p.company || "")}${p.location ? ` · ${esc(p.location)}` : ""}</p>
+      <p class="sub">${esc(p.company || "")}${p.location ? ` · ${esc(p.location)}` : ""}${p.source ? ` · <span class="prospect-src">via ${esc(p.source)}</span>` : ""}</p>
       <p class="prospect-desc">${esc((p.description || "").slice(0, 220))}${(p.description || "").length > 220 ? "…" : ""}</p>
       <div class="card-actions">
         ${p.url ? `<a class="btn" href="${esc(p.url)}" target="_blank" rel="noopener">↗ View</a>` : ""}

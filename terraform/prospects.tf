@@ -44,8 +44,9 @@ resource "aws_lambda_function" "prospects" {
   timeout          = 60
   environment {
     variables = {
-      DOCS_BUCKET = aws_s3_bucket.docs.bucket
-      FEED_URL    = var.feed_url
+      DOCS_BUCKET     = aws_s3_bucket.docs.bucket
+      FEED_URL        = var.feed_url
+      FILTER_KEYWORDS = var.feed_filter_keywords
     }
   }
   tags = local.tags

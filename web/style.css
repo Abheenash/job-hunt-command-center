@@ -354,3 +354,4 @@ main { flex: 1; min-width: 0; padding: 1.1rem 1.5rem 2rem; max-width: 1180px; }
 .an-tbl th { color: var(--muted); font-weight: 600; }
 .prospect-desc { color: var(--muted); font-size: .82rem; margin: .4rem 0; }
 .card-actions { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .6rem; }
+.prospect-src { color: #6b3fa0; }
