@@ -68,24 +68,6 @@ PREAMBLE = r"""%-------------------------
 """
 
 
-TEMPLATES = ("standard", "modern", "compact")
-
-
-def preamble(template="standard"):
-    """Three styles from one base: standard (black rules), modern (orange accent
-    rules), compact (10pt + tighter, fits more). Low-risk string tweaks so all
-    three compile identically."""
-    p = PREAMBLE
-    if template == "compact":
-        p = p.replace("letterpaper,11pt", "letterpaper,10pt")
-    elif template == "modern":
-        p = p.replace(
-            r"\titleformat{\section}{\vspace{-4pt}\scshape\raggedright\large\bfseries}{}{0em}{}[\color{black}\titlerule \vspace{-5pt}]",
-            r"\definecolor{accent}{rgb}{0.925,0.447,0.067}" + "\n"
-            r"\titleformat{\section}{\vspace{-4pt}\scshape\raggedright\large\bfseries}{}{0em}{}[\color{accent}\titlerule \vspace{-5pt}]")
-    return p
-
-
 def _header():
     c = P.CONTACT
     badge = (
@@ -177,12 +159,12 @@ def _certs():
             f"    \\small{{\\item{{\n{body}\n    }}}}\n \\end{{itemize}}\n \\vspace{{-16pt}}")
 
 
-def render_resume(sel, template="standard"):
+def render_resume(sel):
     """sel = {summary, skills:[{category,items}], experienceBullets:[str],
              projects:[{id,name,tech,bullets:[str]}]}. All AI-rewritten, corpus-only."""
     summary = _md((sel.get("summary") or "").strip()) or P.SUMMARY_BASE
     parts = [
-        preamble(template if template in TEMPLATES else "standard"),
+        PREAMBLE,
         "\\begin{document}\n",
         _header(),
         "\n%-----------SUMMARY-----------\n\\section{Summary}\n\\small{\n" + summary + "\n}\n\\vspace{-6pt}\n",

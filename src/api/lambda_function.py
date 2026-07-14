@@ -132,11 +132,6 @@ def handler(event, _ctx):
                 return match_resume(user, parts[1])
             elif len(parts) == 3 and parts[2] == "attach-generated" and method == "POST":
                 return attach_generated(user, parts[1], body)
-        if parts[:1] == ["prospects"]:
-            if len(parts) == 1 and method == "GET":
-                return list_prospects()
-            if len(parts) == 2 and method == "DELETE":
-                return dismiss_prospect(parts[1])
         return _r(404, {"error": "not found"})
     except NotFound:
         return _r(404, {"error": "application not found"})
@@ -243,28 +238,6 @@ def upload_url(user, app_id, data):
     url = s3.generate_presigned_url("put_object",
                                     Params={"Bucket": BUCKET, "Key": key}, ExpiresIn=PRESIGN_TTL)
     return _r(200, {"uploadUrl": url, "docKey": key, "kind": kind, "filename": filename})
-
-
-_PROSPECTS_KEY = "prospects/list.json"
-
-
-def list_prospects():
-    """The ingested job-feed review queue (newest first). Single-user, so global."""
-    try:
-        data = json.loads(s3.get_object(Bucket=BUCKET, Key=_PROSPECTS_KEY)["Body"].read())
-    except Exception:  # noqa: BLE001
-        data = []
-    return _r(200, {"prospects": list(reversed(data))[:100]})
-
-
-def dismiss_prospect(pid):
-    try:
-        data = json.loads(s3.get_object(Bucket=BUCKET, Key=_PROSPECTS_KEY)["Body"].read())
-    except Exception:  # noqa: BLE001
-        data = []
-    data = [p for p in data if p.get("id") != pid]
-    s3.put_object(Bucket=BUCKET, Key=_PROSPECTS_KEY, Body=json.dumps(data).encode("utf-8"), ContentType="application/json")
-    return _r(200, {"ok": True})
 
 
 def attach_generated(user, app_id, data):

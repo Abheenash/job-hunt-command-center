@@ -178,7 +178,6 @@ def _start_job(event):
     job = uuid.uuid4().hex
     params = {"jd": jd, "coverLetter": bool(body.get("coverLetter")),
               "company": (body.get("company") or "").strip(), "role": (body.get("role") or "").strip(),
-              "template": body.get("template") if body.get("template") in T.TEMPLATES else "standard",
               "model": body.get("model") if body.get("model") in MODELS else DEFAULT_MODEL}
     lam.invoke(FunctionName=SELF, InvocationType="Event",
                Payload=json.dumps({"_job": job, "params": params}).encode("utf-8"))
@@ -225,7 +224,6 @@ def _run_job(job, params, ctx):
     want_cover = bool(params.get("coverLetter"))
     company = (params.get("company") or "").strip()
     role = (params.get("role") or "").strip()
-    template = params.get("template") if params.get("template") in T.TEMPLATES else "standard"
     model_key = params.get("model") if params.get("model") in MODELS else DEFAULT_MODEL
     extras = _load_extras()
 
@@ -245,7 +243,7 @@ def _run_job(job, params, ctx):
         _write_result(job, {"status": "error", "error": "The model could not generate a résumé. Try again."})
         return {"ok": False}
 
-    resume_tex = T.render_resume(sel, template)
+    resume_tex = T.render_resume(sel)
     cover_tex = T.render_cover_letter(company, role, sel["coverLetter"]) if (want_cover and sel.get("coverLetter")) else None
     selected = [{"id": s.get("id"), "name": _plain((P.project_by_id(s.get("id")) or {}).get("name", s.get("id", "")))}
                 for s in (sel.get("projects") or [])]
@@ -281,7 +279,7 @@ def _run_job(job, params, ctx):
 
     # phase 2: best-effort server-side PDF with length auto-fit (never fatal)
     try:
-        pdf, pages, final_tex = _compile_autofit(sel, template)
+        pdf, pages, final_tex = _compile_autofit(sel)
         if pdf:
             s3.put_object(Bucket=DOCS_BUCKET, Key=f"generated/{job}/resume.pdf", Body=pdf, ContentType="application/pdf")
             result["pdfUrl"] = _presign(f"generated/{job}/resume.pdf")
@@ -354,13 +352,13 @@ def _pages(logpath, pdf):
     return len(re.findall(rb"/Type\s*/Page[^s]", pdf)) or None  # fallback
 
 
-def _compile_autofit(sel, template="standard"):
+def _compile_autofit(sel):
     """Compile; if >2 pages, trim the least-important bullet and recompile (<=5x)."""
-    tex = T.render_resume(sel, template)
+    tex = T.render_resume(sel)
     pdf, pages, _ = _compile(tex, "resume")
     tries = 0
     while pdf and pages and pages > 2 and tries < 5 and _trim(sel):
-        tex = T.render_resume(sel, template)
+        tex = T.render_resume(sel)
         pdf, pages, _ = _compile(tex, "resume")
         tries += 1
     return pdf, pages, tex

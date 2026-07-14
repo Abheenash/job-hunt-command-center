@@ -68,7 +68,6 @@
         <nav class="views" id="views">
           <button class="chip view on" data-v="all">📋 All applications</button>
           <button class="chip view" data-v="todo">⏰ Follow-ups<span id="todo-count">0</span></button>
-          <button class="chip view" data-v="prospects">🧲 Prospects<span id="prospects-count">0</span></button>
         </nav>
         <div class="side-sub">Status</div>
         <nav id="filters"></nav>
@@ -122,9 +121,6 @@
         <!-- FOLLOW-UPS VIEW (rendered by JS) -->
         <div id="todo-view" hidden></div>
 
-        <!-- PROSPECTS VIEW (rendered by JS) -->
-        <div id="prospects-view" hidden></div>
-
         <!-- EDIT VIEW (inline, page-style) -->
         <div id="edit-view" hidden>
           <button class="backlink" id="e-back"><svg class="i"><use href="#ic-back"/></svg> <span id="e-back-label">Back</span></button>
@@ -136,15 +132,10 @@
             <div class="jd-actions">
               <button type="button" id="autofill" class="btn">✨ Autofill fields</button>
               <button type="button" id="gen-resume" class="btn primary">📄 Generate tailored résumé</button>
-              <select id="gen-model" class="sortsel" title="Which model writes it — affects quality & cost">
-                <option value="sonnet">Sonnet · balanced ~5¢</option>
-                <option value="haiku">Haiku · cheapest ~2¢</option>
-                <option value="opus">Opus · best ~25¢</option>
-              </select>
-              <select id="gen-template" class="sortsel" title="Résumé style">
-                <option value="standard">Style: Standard</option>
-                <option value="modern">Style: Modern</option>
-                <option value="compact">Style: Compact</option>
+              <select id="gen-model" class="sortsel" title="Which model writes the résumé">
+                <option value="sonnet">Sonnet 4.6</option>
+                <option value="haiku">Haiku 4.5</option>
+                <option value="opus">Opus 4.5</option>
               </select>
               <label class="check2 inline"><input type="checkbox" id="gen-cover" /> + cover letter</label>
               <span id="autofill-status" class="filenote"></span>
