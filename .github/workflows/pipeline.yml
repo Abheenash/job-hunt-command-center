@@ -62,7 +62,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
-      - run: pip install pytest
+      - run: pip install pytest boto3 # boto3: scanner/enrich test modules import it at load
       - name: Classifier tests
         working-directory: src/classify
         run: python -m pytest -q
