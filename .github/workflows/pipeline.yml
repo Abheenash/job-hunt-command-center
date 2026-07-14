@@ -58,6 +58,8 @@ jobs:
   test:
     name: Unit tests (classifier)
     runs-on: ubuntu-latest
+    env:
+      AWS_DEFAULT_REGION: us-east-1 # boto3 clients are built at module import (no API calls)
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
