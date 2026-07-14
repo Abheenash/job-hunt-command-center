@@ -355,3 +355,19 @@ main { flex: 1; min-width: 0; padding: 1.1rem 1.5rem 2rem; max-width: 1180px; }
 .prospect-desc { color: var(--muted); font-size: .82rem; margin: .4rem 0; }
 .card-actions { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .6rem; }
 .prospect-src { color: #6b3fa0; }
+/* ---- Inbox view (job-related emails) ----------------------------------- */
+.inbox-list { display: grid; gap: .5rem; }
+.inbox-item { display: flex; gap: .7rem; padding: .8rem; background: var(--card); border: 1px solid var(--border-soft); border-radius: 10px; align-items: flex-start; }
+.inbox-item.clickable { cursor: pointer; }
+.inbox-item.clickable:hover { border-color: var(--link); box-shadow: 0 1px 6px rgba(0,0,0,.06); }
+.inbox-cat { font-size: 1.3rem; flex: 0 0 auto; }
+.inbox-body { min-width: 0; flex: 1; }
+.inbox-top { display: flex; justify-content: space-between; gap: .6rem; align-items: baseline; }
+.inbox-top b { font-size: .92rem; }
+.inbox-when { color: var(--muted); font-size: .76rem; white-space: nowrap; }
+.inbox-meta { margin: .25rem 0; font-size: .8rem; color: var(--muted); display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
+.inbox-badge { text-transform: capitalize; background: #eef4ff; color: #2a5db0; border: 1px solid #cfe0fb; border-radius: 999px; padding: .06rem .5rem; font-size: .74rem; }
+.inbox-app { color: var(--link); }
+.inbox-unlinked { color: var(--muted); font-style: italic; }
+.inbox-summary { margin: .3rem 0; font-size: .84rem; color: var(--text); }
+.inbox-from { font-size: .74rem; color: #9aa5b1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

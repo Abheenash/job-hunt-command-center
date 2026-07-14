@@ -190,7 +190,7 @@ function renderActivity() {
 }
 
 // ---------- detail view (portfolio-style) ----------------------------------
-function showOnly(sel) { ["#list-view", "#detail-view", "#edit-view", "#todo-view"].forEach((s) => ($(s).hidden = s !== sel)); }
+function showOnly(sel) { ["#list-view", "#detail-view", "#edit-view", "#todo-view", "#inbox-view"].forEach((s) => ($(s).hidden = s !== sel)); }
 function openDetail(id) { const a = APPS.find((x) => x.appId === id); if (!a) return; currentDetail = id; renderDetail(a); showOnly("#detail-view"); window.scrollTo(0, 0); }
 function closeDetail() { currentDetail = null; showOnly(currentView === "todo" ? "#todo-view" : "#list-view"); }
 
@@ -198,7 +198,9 @@ let currentView = "all";
 function setView(v) {
   currentView = v; currentDetail = null;
   $$("#views .view").forEach((b) => b.classList.toggle("on", b.dataset.v === v));
-  if (v === "todo") { renderTodo(); showOnly("#todo-view"); } else { showOnly("#list-view"); }
+  if (v === "todo") { renderTodo(); showOnly("#todo-view"); }
+  else if (v === "inbox") { renderInbox(); showOnly("#inbox-view"); }
+  else { showOnly("#list-view"); }
 }
 
 // ---------- follow-ups (next action + due + importance) --------------------
@@ -621,7 +623,12 @@ async function changePassword() {
 let NOTIFS = [];
 const NOTIF_SEEN = "jhcc_notif_seen";
 const CAT_ICON = { interview: "📅", offer: "🎉", rejection: "🚫", recruiter_reply: "💬", confirmation: "✅" };
-async function loadNotifications() { try { NOTIFS = (await api("GET", "/notifications")).notifications || []; } catch (_e) { NOTIFS = []; } renderNotifBadge(); }
+async function loadNotifications() {
+  try { NOTIFS = (await api("GET", "/notifications")).notifications || []; } catch (_e) { NOTIFS = []; }
+  renderNotifBadge();
+  const ic = $("#inbox-count"); if (ic) ic.textContent = NOTIFS.length;
+  if (currentView === "inbox" && !$("#inbox-view").hidden) renderInbox();
+}
 function renderNotifBadge() {
   const last = +(localStorage.getItem(NOTIF_SEEN) || 0);
   const unread = NOTIFS.filter((n) => (n.receivedAt || 0) > last).length;
@@ -635,6 +642,31 @@ function renderNotifList() {
       <div><b>${esc(n.subject || "(no subject)")}</b><small>${n.action ? `<b class="notif-act">✓ ${esc(n.action)}</b> · ` : ""}${esc((n.category || "").replace(/_/g, " "))}${n.summary ? " — " + esc(n.summary) : ""}</small></div></button>`).join("")
     : `<p class="notif-empty">No inbox findings yet.<br><span class="filenote">Turn on Gmail scanning and recruiter replies, rejections &amp; interviews will appear here automatically.</span></p>`;
   $$("#notif-list .notif-item").forEach((el) => (el.onclick = () => { const id = el.dataset.app; $("#notif-pop").hidden = true; if (id && id !== "unmatched") openDetail(id); }));
+}
+
+// ---------- Inbox view (full-page list of job-related emails) ---------------
+function inboxRow(n) {
+  const app = (n.appId && n.appId !== "unmatched") ? APPS.find((a) => a.appId === n.appId) : null;
+  const when = n.receivedAt ? fmtDate(n.receivedAt) : "";
+  const linked = app ? `<span class="inbox-app">🔗 ${esc(app.company || "application")}</span>` : `<span class="inbox-unlinked">unlinked</span>`;
+  return `<article class="inbox-item${app ? " clickable" : ""}" data-app="${esc(n.appId || "")}">
+      <span class="inbox-cat">${CAT_ICON[n.category] || "📨"}</span>
+      <div class="inbox-body">
+        <div class="inbox-top"><b>${esc(n.subject || "(no subject)")}</b><span class="inbox-when">${esc(when)}</span></div>
+        <div class="inbox-meta"><span class="inbox-badge">${esc((n.category || "").replace(/_/g, " "))}</span> ${linked}${n.action ? ` · <b class="notif-act">✓ ${esc(n.action)}</b>` : ""}</div>
+        ${n.summary ? `<p class="inbox-summary">${esc(n.summary)}</p>` : ""}
+        <div class="inbox-from">${esc(n.from || "")}</div>
+      </div>
+    </article>`;
+}
+function renderInbox() {
+  const el = $("#inbox-view");
+  el.innerHTML = `<div class="page-head"><div><h1>📨 Inbox</h1><p class="sub">Job-related emails your scanner classified and linked to applications — recruiter replies, interviews, rejections, offers, confirmations. Click one to open its application.</p></div></div>
+    ${NOTIFS.length ? `<div class="inbox-list">${NOTIFS.map(inboxRow).join("")}</div>`
+      : `<p class="empty">No job-related emails yet. Once your inbox scanner runs (or a recruiter / ATS emails you), interviews, rejections and confirmations show up here — automatically linked to the right application.</p>`}`;
+  $$("#inbox-view .inbox-item.clickable").forEach((r) => (r.onclick = () => openDetail(r.dataset.app)));
+  localStorage.setItem(NOTIF_SEEN, String(Math.floor(Date.now() / 1000))); // opening the tab clears the bell
+  renderNotifBadge();
 }
 function togglePop(sel) { ["#acct-pop", "#notif-pop"].forEach((s) => { if (s !== sel) $(s).hidden = true; }); const p = $(sel); p.hidden = !p.hidden; }
 
