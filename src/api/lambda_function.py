@@ -380,7 +380,12 @@ def match_resume(user, app_id):
         return _r(422, {"error": "couldn't read text from that PDF (is it a scan/image?)"})
 
     payload = {
-        "anthropic_version": "bedrock-2023-05-31", "max_tokens": 700, "system": MATCH_SYSTEM,
+        # 1500 (was 700): the weighted-rubric schema (5 scored dimensions + notes +
+        # matched + ATS lists + summary) overran 700 and truncated the JSON.
+        # temperature 0.2 (was unset → default ~1.0): high temp made Haiku emit
+        # malformed JSON (unescaped quotes in notes) non-deterministically.
+        "anthropic_version": "bedrock-2023-05-31", "max_tokens": 1500, "temperature": 0.2,
+        "system": MATCH_SYSTEM,
         "messages": [{"role": "user", "content": [{"type": "text",
             "text": f"JOB DESCRIPTION:\n{jd[:8000]}\n\nRESUME:\n{text[:8000]}"}]}],
     }
