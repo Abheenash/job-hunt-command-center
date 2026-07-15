@@ -165,7 +165,7 @@ function ini(a) { return esc((a.company || "?").trim().charAt(0).toUpperCase() |
 
 function card(a) {
   const due = a.nextDue ? `<span class="due">⏰ ${esc(a.nextAction || "next")} · ${a.nextDue}</span>` : "";
-  const spons = a.sponsors ? `<span class="tag sp">sponsors</span>` : "";
+  const spons = a.sponsorVerdict ? sponBadge(a) : (a.sponsors ? `<span class="tag sp">sponsors</span>` : "");
   const st = a.state ? `<span class="tag st">${esc(a.state)}</span>` : "";
   const mt = a.matchPercent != null ? `<span class="tag mt ${a.matchPercent >= 75 ? "good" : a.matchPercent >= 50 ? "ok" : "low"}">${a.matchPercent}% match</span>` : "";
   const pr = a.priority ? `<span class="tag pr ${a.priority.toLowerCase()}">${esc(a.priority)}</span>` : "";
@@ -244,7 +244,7 @@ function renderDetail(a) {
     <div class="detail-head">
       <span class="card-ico big">${ini(a)}</span>
       <div><div class="lede">${esc(a.title || "")}</div><h1>${esc(a.company || "—")}</h1>
-        <span class="pill ${a.status}">${esc(a.status)}</span>${a.state ? ` <span class="tag st">${esc(a.state)}</span>` : ""}${a.sponsors ? ` <span class="tag sp">sponsors OPT</span>` : ""}</div>
+        <span class="pill ${a.status}">${esc(a.status)}</span>${a.state ? ` <span class="tag st">${esc(a.state)}</span>` : ""}${a.sponsorVerdict ? " " + sponBadge(a) : (a.sponsors ? ` <span class="tag sp">sponsors OPT</span>` : "")}</div>
       <div class="detail-actions">
         ${a.url ? `<a class="btn" href="${esc(a.url)}" target="_blank" rel="noopener">↗ Posting</a>` : ""}
         <button class="btn" id="d-edit">✎ Edit</button>
@@ -253,6 +253,7 @@ function renderDetail(a) {
     </div>
     <div class="detail-grid">
       <div class="detail-main">
+        <div class="container"><div class="container-head">🛂 Visa sponsorship</div><div class="container-body" id="d-spon">${sponInner(a)}</div></div>
         <div class="container"><div class="container-head">🎯 JD ↔ résumé match</div><div class="container-body" id="d-match">${matchInner(a)}</div></div>
         ${skillsBody ? `<div class="container"><div class="container-head">🧩 Skills &amp; tags</div><div class="container-body">${skillsBody}</div></div>` : ""}
         ${a.jd ? `<div class="container"><div class="container-head">📄 Job description</div><div class="container-body"><pre class="jd-text">${esc(a.jd)}</pre></div></div>` : ""}
@@ -290,6 +291,7 @@ function renderDetail(a) {
   $("#d-edit").onclick = () => openEdit(a.appId);
   $("#d-del").onclick = () => delApp(a.appId);
   const mb = $("#d-match-btn"); if (mb) mb.onclick = () => runMatch(a.appId);
+  const sb = $("#d-spon-btn"); if (sb) sb.onclick = () => runSponsor(a.appId);
   $$("#detail-view .doclist a").forEach((el) => (el.onclick = async (e) => {
     e.preventDefault();
     const j = await api("GET", "/download?key=" + encodeURIComponent(el.dataset.key));
@@ -332,6 +334,77 @@ async function runMatch(id) {
   } catch (e) { if (msg) msg.textContent = e.message; if (btn) { btn.disabled = false; btn.textContent = "Run match check"; } }
 }
 
+// ---------- visa sponsorship -----------------------------------------------
+const SPON_CLASS = { likely: "sp-good", possible: "sp-ok", capexempt: "sp-exempt", caution: "sp-warn", rare: "sp-warn", none: "sp-none", unlikely: "sp-bad", unknown: "sp-none" };
+const SPON_ICON = { likely: "✓", possible: "≈", capexempt: "★", caution: "⚠", rare: "⚠", none: "∅", unlikely: "✗", unknown: "?" };
+
+function sponLinksFor(company) {
+  const q = encodeURIComponent((company || "").trim());
+  const slug = (company || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  return { h1bdata: `https://h1bdata.info/index.php?em=${q}`, myvisajobs: `https://www.myvisajobs.com/search/?q=${q}`, h1bgrader: `https://h1bgrader.com/search?q=${q}&slug=${slug}` };
+}
+function sponBadge(a) {
+  if (!a.sponsorVerdict) return "";
+  const lvl = a.sponsorVerdict;
+  return `<span class="tag spon ${SPON_CLASS[lvl] || "sp-none"}" title="${esc(a.sponsorLabel || "")}">${SPON_ICON[lvl] || "?"} ${esc(a.sponsorLabel || lvl)}</span>`;
+}
+function h1bBlock(h) {
+  if (!h || !h.count) return `<p class="filenote">No H-1B filings found for this exact name — try the parent-company name.</p>`;
+  const wage = h.medianTechSalary || h.medianSalary;
+  return `<div class="h1b-grid">
+      <div><b>${h.count}${h.capped ? "+" : ""}</b><span>LCA filings${h.recentYear ? " · " + h.recentYear : ""}</span></div>
+      <div><b>${h.techCount || 0}</b><span>tech / eng roles</span></div>
+      ${wage ? `<div><b>$${Math.round(wage / 1000)}k</b><span>median wage</span></div>` : ""}
+    </div>
+    ${(h.topTitles && h.topTitles.length) ? `<div class="h1b-titles">Top sponsored: ${h.topTitles.map((t) => `<span class="tag">${esc(t[0])} · ${t[1]}</span>`).join(" ")}</div>` : ""}
+    ${h.employer ? `<div class="filenote">Matched: ${esc(h.employer)}${h.matchedVia ? ` (searched “${esc(h.matchedVia)}”)` : ""}</div>` : ""}`;
+}
+function sponVerdictHtml(v, company, capExempt, label, level) {
+  const cls = SPON_CLASS[level] || "sp-none";
+  const L = sponLinksFor(company);
+  return `<div class="spon-verdict ${cls}"><span class="spon-badge">${SPON_ICON[level] || "?"}</span>
+      <div><b>${esc(label || level)}</b>${capExempt ? `<span class="spon-note">lottery-proof</span>` : ""}</div></div>
+    <ul class="spon-reasons">${(v.reasons || []).map((r) => `<li>${esc(r)}</li>`).join("")}</ul>
+    ${h1bBlock(v.h1b)}
+    <div class="spon-verify">Dig deeper: <a href="${esc(L.h1bdata)}" target="_blank" rel="noopener">h1bdata</a> · <a href="${esc(L.myvisajobs)}" target="_blank" rel="noopener">myvisajobs</a> · <a href="${esc(L.h1bgrader)}" target="_blank" rel="noopener">h1bgrader</a></div>
+    <p class="spon-disc">A signal, not a guarantee — sponsorship varies by team & role. Confirm on the posting.</p>`;
+}
+function sponInner(a) {
+  if (a.sponsorVerdict) {
+    return sponVerdictHtml({ reasons: a.sponsorReasons, h1b: a.sponsorH1b }, a.company, a.sponsorCapExempt, a.sponsorLabel, a.sponsorVerdict)
+      + `<button class="btn sm" id="d-spon-btn">↻ Re-check</button> <span id="d-spon-msg" class="filenote"></span>`;
+  }
+  if (!a.company) return `<p class="muted">Add the company name (via <b>Edit</b>) to check visa sponsorship.</p>`;
+  return `<p class="muted">Scan this employer's H-1B track record and the JD's sponsorship language — no more bouncing between h1bdata / myvisajobs.</p>
+    <button class="btn primary" id="d-spon-btn">🛂 Check sponsorship</button> <span id="d-spon-msg" class="filenote"></span>`;
+}
+async function runSponsor(id) {
+  const btn = $("#d-spon-btn"), msg = $("#d-spon-msg");
+  if (btn) { btn.disabled = true; btn.textContent = "Checking H-1B records…"; }
+  try {
+    await api("POST", "/sponsorship", { appId: id });
+    await load();
+    const a = APPS.find((x) => x.appId === id); if (a) renderDetail(a);
+  } catch (e) { if (msg) msg.textContent = e.message; if (btn) { btn.disabled = false; btn.textContent = "Check sponsorship"; } }
+}
+
+// Quick check from the editor (no appId — ephemeral; ticks the sponsors box).
+async function checkSponsorEdit() {
+  const company = $("#app-form").company.value.trim();
+  const jd = $("#jd").value.trim();
+  const out = $("#spon-out"); out.hidden = false;
+  if (!company) { out.innerHTML = `<p class="err">Enter the company name first (or ✨ Autofill from the JD).</p>`; return; }
+  const btn = $("#check-spon"); btn.disabled = true;
+  out.innerHTML = `<p class="gen-loading">🛂 Checking ${esc(company)}'s H-1B track record…</p>`;
+  try {
+    const { sponsorship: s } = await api("POST", "/sponsorship", { company, jd });
+    out.innerHTML = sponVerdictHtml(s, company, s.capExempt, s.label, s.level)
+      + (s.sponsors ? `<p class="filenote">✓ Ticked “Sponsors / accepts OPT” — save to keep it on this application.</p>` : "");
+    if (s.sponsors) $("#app-form").sponsors.checked = true;
+  } catch (e) { out.innerHTML = `<p class="err">${esc(e.message)}</p>`; }
+  finally { btn.disabled = false; }
+}
+
 // ---------- edit view (inline, page-style) ---------------------------------
 function openEdit(id) {
   editing = id || null;
@@ -341,6 +414,7 @@ function openEdit(id) {
   $("#edit-title").textContent = id ? "Edit application" : "Log application";
   $("#e-back-label").textContent = id ? "Back to application" : "Back to list";
   $("#form-err").textContent = ""; $("#resume-status").textContent = ""; $("#resume").value = ""; $("#autofill-status").textContent = "";
+  $("#spon-out").hidden = true; $("#spon-out").innerHTML = "";
   $("#jd").value = a.jd || "";
   populateCf(a.attributes);
   lastGen = null; $("#gen-out").hidden = true; $("#gen-out").innerHTML = ""; $("#gen-cover").checked = false;
@@ -732,6 +806,7 @@ $("#add").onclick = () => openEdit(null);
 $("#cancel").onclick = cancelEdit;
 $("#e-back").onclick = cancelEdit;
 $("#autofill").onclick = autofill;
+$("#check-spon").onclick = checkSponsorEdit;
 $("#gen-resume").onclick = generateResume;
 $("#cf-add").onclick = () => $("#cf-rows").appendChild(cfRow());
 // remember the model choice across generations (so Haiku stays picked for bulk)

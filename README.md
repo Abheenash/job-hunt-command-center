@@ -62,7 +62,8 @@ traceable end to end.
 3. A scheduled **scanner Lambda** reads *new* mail (read-only IMAP), skips anything already processed (idempotent) or obviously non-job (a cheap keyword/ATS pre-filter), and drops each candidate onto **SQS**. A **dispatcher** consumes the queue and runs the **`process-email` Step Functions workflow** per message: **Classify** (Amazon Bedrock reads the email and returns structured triage — recruiter reply / rejection / interview / offer / confirmation, plus extracted recruiter, pay, location, interview date), then **Enrich** (match the email to an application, auto-advance the status forward-only, fill missing fields, and record the event). Failures retry per message and land in a **DLQ** after 3 tries — nothing is silently lost.
 4. A scheduled **nudge Lambda** finds applications with no response after N days and sends a follow-up reminder via SES.
 5. The dashboard shows your pipeline (applied → screen → interview → offer/rejected) and analytics.
-6. OAuth/email tokens live in **Secrets Manager**, documents in **S3** via presigned URLs; everything is Terraform + keyless-OIDC CI/CD.
+6. A **visa-sponsorship checker** (`POST /sponsorship`) fuses three signals into one verdict — a live **H-1B/LCA history** lookup on h1bdata.info (public DOL data: filing count, how many are tech roles, recent year, median wage), a **deterministic JD language scan** (kill-phrases like "…without sponsorship now or in the future" / citizenship / clearance vs. green flags like "will sponsor" / STEM-OPT), and **curated employer knowledge** (documented no-sponsors, offshore-caution firms, and lottery-exempt universities/hospitals). It's built for an F-1/OPT job search — check sponsorship in one place instead of bouncing between h1bdata / myvisajobs / h1bgrader.
+7. OAuth/email tokens live in **Secrets Manager**, documents in **S3** via presigned URLs; everything is Terraform + keyless-OIDC CI/CD.
 
 ## What each application stores
 
@@ -74,7 +75,7 @@ Every application is a rich record, not just a status line:
 - **Job description** — the full JD text, kept for interview prep and (future) match scoring.
 - **Contacts** — recruiter / referral name + email, linked to the classified inbox events.
 - **Pipeline** — status (applied → screen → interview → offer / rejected / ghosted), an **activity timeline** of every touchpoint, and the **next action + due date**.
-- **Sponsorship flag** — does the role sponsor / accept OPT? (a filter that actually matters for me).
+- **Sponsorship verdict** — a one-click H-1B check (likely / possible / cap-exempt / caution / unlikely) with the employer's real LCA filing history, the reasons, and deep-links to verify — plus the simple sponsors/OPT filter that actually matters for me.
 - **Tags** — keywords for filtering and analytics.
 
 ## Services and why

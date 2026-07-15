@@ -24,6 +24,8 @@ import uuid
 import boto3
 from botocore.config import Config
 
+import sponsorship as sp
+
 s3 = boto3.client("s3", config=Config(signature_version="s3v4"))
 ddb = boto3.client("dynamodb")
 bedrock = boto3.client("bedrock-runtime")
@@ -109,6 +111,10 @@ def handler(event, _ctx):
         # /ask  (natural-language Q&A over the user's applications)
         if parts[:1] == ["ask"] and method == "POST":
             return ask_ai(user, body)
+
+        # /sponsorship  (H-1B visa-sponsorship check for a company / JD)
+        if parts[:1] == ["sponsorship"] and method == "POST":
+            return sponsorship_check(user, body)
 
         if parts[:1] == ["applications"]:
             if len(parts) == 1:
@@ -363,6 +369,41 @@ def ask_ai(user, body):
         return _r(502, {"error": "couldn't answer that, try again"})
     ids = [i for i in (out.get("appIds") or []) if isinstance(i, str)][:12]
     return _r(200, {"answer": str(out.get("answer") or "")[:2000], "appIds": ids})
+
+
+def sponsorship_check(user, body):
+    """One-stop visa-sponsorship verdict: JD language + curated employer lists +
+    a live H-1B (LCA) history lookup. With an appId, persists the verdict onto the
+    application (and lights up the OPT/sponsors flag + filter)."""
+    data = body or {}
+    app_id = data.get("appId")
+    company = str(data.get("company") or "").strip()
+    jd = str(data.get("jd") or "")
+    record = None
+    if app_id:
+        record = _owned(user, app_id)
+        company = company or record.get("company", "")
+        jd = jd or record.get("jd", "")
+    if len(company) < 2:
+        return _r(400, {"error": "add a company name first"})
+
+    h1b = sp.fetch_h1b(company)
+    verdict = sp.resolve(company, jd, h1b)
+    verdict["links"] = sp.verify_links(company)
+
+    if record is not None:
+        now = int(time.time())
+        record.update({
+            "sponsorVerdict": verdict["level"], "sponsorLabel": verdict["label"],
+            "sponsorReasons": verdict["reasons"], "sponsorH1b": verdict["h1b"],
+            "sponsorCapExempt": verdict["capExempt"], "sponsors": verdict["sponsors"],
+            "sponsorCheckedAt": now, "updatedAt": now,
+        })
+        events = record.get("timeline") or []
+        events.append({"at": now, "event": f"Sponsorship check — {verdict['label']}"})
+        record["timeline"] = events[-50:]
+        _put(app_id, user, record)
+    return _r(200, {"sponsorship": verdict})
 
 
 def match_resume(user, app_id):
