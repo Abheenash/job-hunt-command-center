@@ -404,3 +404,20 @@ main { flex: 1; min-width: 0; padding: 1.1rem 1.5rem 2rem; max-width: 1180px; }
 .spon-disc { font-size: .76rem; color: var(--muted); margin: .5rem 0 .7rem; font-style: italic; }
 .spon-out { margin-top: .8rem; border: 1px solid var(--border-soft); border-radius: 10px; padding: .8rem; background: #fafbfc; }
 @media (max-width: 620px) { .h1b-grid { grid-template-columns: 1fr 1fr; } }
+
+/* ---------- referral tags ---------- */
+.tag.rf { font-weight: 700; background: #f3ecff; color: #6b2fd0; border-color: #e3d5fb; }
+.tag.rf.out { background: #eef4ff; color: #0056d6; border-color: #dbe1fb; }
+
+/* ---------- interview prep ---------- */
+.prep-sec { margin-bottom: .9rem; }
+.prep-sec:last-of-type { margin-bottom: .3rem; }
+.prep-sec h4 { font-size: .84rem; margin-bottom: .35rem; }
+.prep-sec ul { list-style: none; padding: 0; }
+.prep-sec li { position: relative; padding: .35rem 0 .35rem 1rem; font-size: .86rem; border-bottom: 1px solid var(--border-soft); }
+.prep-sec li:last-child { border-bottom: 0; }
+.prep-sec li::before { content: "›"; position: absolute; left: .1rem; color: var(--muted); font-weight: 700; }
+.prep-sec li b { font-weight: 600; }
+.prep-hint { display: block; color: var(--muted); font-size: .8rem; margin-top: .15rem; }
+.prep-good h4 { color: var(--ok); } .prep-good li::before { color: var(--ok); }
+.prep-gap h4 { color: #b35900; } .prep-gap li::before { color: #b35900; }

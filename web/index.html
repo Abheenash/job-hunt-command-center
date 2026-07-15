@@ -77,6 +77,7 @@
           <select id="f-state" class="side-input"><option value="">All states</option></select>
           <input id="f-date" type="date" class="side-input" title="Filter by date applied" />
           <label class="side-check"><input type="checkbox" id="f-opt" /> OPT / sponsors only</label>
+          <label class="side-check"><input type="checkbox" id="f-ref" /> Referrals only</label>
           <button id="f-clear" class="btn wide" hidden>Clear filters</button>
         </div>
         <div class="side-status" id="side-status">
@@ -167,6 +168,8 @@
             <label class="check2"><input type="checkbox" name="sponsors" /> Sponsors / accepts OPT</label>
             <label>Recruiter name<input name="contactName" /></label>
             <label>Recruiter email<input name="contactEmail" type="email" /></label>
+            <label>Referred by<input name="referredBy" placeholder="Name / alumni contact" /></label>
+            <label>Referral<select name="referralStatus"><option value="">—</option><option>Reached out</option><option>Referral secured</option></select></label>
             <label>Next action<input name="nextAction" placeholder="Follow up, prep, …" /></label>
             <label>Next action due<input name="nextDue" type="date" /></label>
             <label>Tags (comma-sep)<input name="tags" placeholder="aws, remote, devops" /></label>

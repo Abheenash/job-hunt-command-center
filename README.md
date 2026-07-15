@@ -63,7 +63,9 @@ traceable end to end.
 4. A scheduled **nudge Lambda** finds applications with no response after N days and sends a follow-up reminder via SES.
 5. The dashboard shows your pipeline (applied → screen → interview → offer/rejected) and analytics.
 6. A **visa-sponsorship checker** (`POST /sponsorship`) fuses three signals into one verdict — a live **H-1B/LCA history** lookup on h1bdata.info (public DOL data: filing count, how many are tech roles, recent year, median wage), a **deterministic JD language scan** (kill-phrases like "…without sponsorship now or in the future" / citizenship / clearance vs. green flags like "will sponsor" / STEM-OPT), and **curated employer knowledge** (documented no-sponsors, offshore-caution firms, and lottery-exempt universities/hospitals). It's built for an F-1/OPT job search — check sponsorship in one place instead of bouncing between h1bdata / myvisajobs / h1bgrader.
-7. OAuth/email tokens live in **Secrets Manager**, documents in **S3** via presigned URLs; everything is Terraform + keyless-OIDC CI/CD.
+7. An **interview-prep generator** (`POST /applications/{id}/interview-prep`) turns the stored JD + the résumé you sent into tailored prep via Bedrock — likely technical & behavioral questions, talking points mapped to *your* background, gaps to shore up, and sharp questions to ask them.
+8. **Referral tracking** (referred-by + referral status, with its own filter and card badges) keeps the highest-converting channel visible, and a **duplicate-apply warning** stops the same company+title being logged twice.
+9. OAuth/email tokens live in **Secrets Manager**, documents in **S3** via presigned URLs; everything is Terraform + keyless-OIDC CI/CD.
 
 ## What each application stores
 

@@ -64,6 +64,18 @@ MATCH_WEIGHTS = [
     ("Domain relevance", 15), ("ATS keywords", 10),
 ]
 
+INTERVIEW_SYSTEM = (
+    "You are an interview coach preparing a candidate for one specific job. Use the "
+    "job description (and the résumé, if given) to produce realistic, tailored prep. "
+    "Ground talking points ONLY in the résumé/JD provided — never invent the candidate's "
+    "experience. Reply with ONLY a compact JSON object, no prose, no code fences: "
+    '{"technical":[{"q":str,"hint":str}] (up to 6 role-specific technical questions with a '
+    'one-line hint at a strong answer), "behavioral":[{"q":str,"angle":str}] (up to 4, angle '
+    '= how to frame the answer), "talkingPoints":[str] (up to 5 — how THIS candidate\'s '
+    'background maps to THIS JD), "gaps":[str] (up to 4 likely weak spots to prepare for), '
+    '"askThem":[str] (up to 4 sharp questions to ask the interviewer)}'
+)
+
 ASK_SYSTEM = (
     "You are the assistant for a personal job-application tracker. Answer the user's "
     "question using ONLY their applications, provided as JSON. Be concise and specific "
@@ -136,6 +148,8 @@ def handler(event, _ctx):
                 return upload_url(user, parts[1], body)
             elif len(parts) == 3 and parts[2] == "match" and method == "POST":
                 return match_resume(user, parts[1])
+            elif len(parts) == 3 and parts[2] == "interview-prep" and method == "POST":
+                return interview_prep(user, parts[1])
             elif len(parts) == 3 and parts[2] == "attach-generated" and method == "POST":
                 return attach_generated(user, parts[1], body)
         return _r(404, {"error": "not found"})
@@ -344,8 +358,9 @@ def _user_apps(user):
 
 
 _ASK_FIELDS = ("appId", "company", "title", "status", "priority", "dateApplied", "location",
-               "state", "workMode", "salary", "source", "tags", "sponsors", "matchPercent",
-               "nextAction", "nextDue", "contactName", "requiredSkills", "confirmed")
+               "state", "workMode", "salary", "source", "tags", "sponsors", "sponsorVerdict",
+               "matchPercent", "nextAction", "nextDue", "contactName", "referredBy",
+               "referralStatus", "requiredSkills", "confirmed")
 
 
 def ask_ai(user, body):
@@ -468,6 +483,52 @@ def match_resume(user, app_id):
     item["timeline"] = events[-50:]
     _put(app_id, user, item)
     return _r(200, {"match": result})
+
+
+def interview_prep(user, app_id):
+    """Turn the stored JD (+ résumé if attached) into tailored interview prep."""
+    item = _owned(user, app_id)
+    jd = item.get("jd", "")
+    if len(jd) < 20:
+        return _r(400, {"error": "add the job description to this application first"})
+    docs = item.get("documents", [])
+    resume = next((d for d in docs if d.get("kind") == "resume"), docs[0] if docs else None)
+    resume_txt = _pdf_text(resume["docKey"])[:6000] if resume else ""
+    user_txt = f"JOB DESCRIPTION:\n{jd[:8000]}"
+    user_txt += (f"\n\nCANDIDATE RÉSUMÉ:\n{resume_txt}" if resume_txt else
+                 "\n\n(No résumé attached — base talking points on the JD's requirements and "
+                 "keep them as prompts the candidate can fill in with their own experience.)")
+
+    payload = {
+        "anthropic_version": "bedrock-2023-05-31", "max_tokens": 1900, "temperature": 0.3,
+        "system": INTERVIEW_SYSTEM,
+        "messages": [{"role": "user", "content": [{"type": "text", "text": user_txt}]}],
+    }
+    try:
+        resp = bedrock.invoke_model(modelId=BEDROCK_MODEL, body=json.dumps(payload))
+        out = json.loads(resp["body"].read())["content"][0]["text"]
+        prep = json.loads(_first_json(out))
+    except Exception as e:  # noqa: BLE001
+        print(f"interview-prep failed: {type(e).__name__}: {e}")
+        return _r(502, {"error": "prep generation failed, try again"})
+
+    def _qs(arr, second):
+        return [{"q": str(x.get("q", ""))[:400], second: str(x.get(second, ""))[:300]}
+                for x in (arr or []) if isinstance(x, dict) and x.get("q")]
+    clean = {
+        "technical": _qs(prep.get("technical"), "hint")[:6],
+        "behavioral": _qs(prep.get("behavioral"), "angle")[:4],
+        "talkingPoints": [str(x)[:300] for x in (prep.get("talkingPoints") or [])][:5],
+        "gaps": [str(x)[:300] for x in (prep.get("gaps") or [])][:4],
+        "askThem": [str(x)[:300] for x in (prep.get("askThem") or [])][:4],
+    }
+    now = int(time.time())
+    item.update({"interviewPrep": clean, "interviewPrepAt": now, "updatedAt": now})
+    events = item.get("timeline") or []
+    events.append({"at": now, "event": "Interview prep generated"})
+    item["timeline"] = events[-50:]
+    _put(app_id, user, item)
+    return _r(200, {"prep": clean})
 
 
 def _pdf_text(key):

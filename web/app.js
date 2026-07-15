@@ -8,13 +8,13 @@ const LS = { id: "jhcc_id", access: "jhcc_access", refresh: "jhcc_refresh", emai
 const STATUSES = ["applied", "screen", "interview", "offer", "rejected", "ghosted"];
 const US_STATES = ["Remote", "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY", "DC"];
 const FORM_FIELDS = ["company", "title", "dateApplied", "status", "priority", "location", "state", "workMode",
-  "seniority", "salary", "source", "url", "contactName", "contactEmail", "nextAction", "nextDue",
-  "tags", "requiredSkills", "niceToHave"];
+  "seniority", "salary", "source", "url", "contactName", "contactEmail", "referredBy", "referralStatus",
+  "nextAction", "nextDue", "tags", "requiredSkills", "niceToHave"];
 const fmtDate = (epoch) => { try { return new Date(epoch * 1000).toISOString().slice(0, 10); } catch (_e) { return ""; } };
 
 let APPS = [];
 let editing = null, currentDetail = null;
-let filterStatus = "all", filterState = "", filterDate = "", filterOpt = false, query = "", sortBy = "updated";
+let filterStatus = "all", filterState = "", filterDate = "", filterOpt = false, filterRef = false, query = "", sortBy = "updated";
 
 function parseSalary(s) {
   if (!s) return 0;
@@ -146,6 +146,7 @@ function visible() {
   if (filterState) rows = rows.filter((a) => a.state === filterState);
   if (filterDate) rows = rows.filter((a) => a.dateApplied === filterDate);
   if (filterOpt) rows = rows.filter((a) => a.sponsors);
+  if (filterRef) rows = rows.filter((a) => a.referralStatus);
   if (query) {
     const q = query.toLowerCase();
     rows = rows.filter((a) => [a.company, a.title, a.location, a.state, a.tags, a.requiredSkills].join(" ").toLowerCase().includes(q));
@@ -155,7 +156,7 @@ function visible() {
 
 function renderList() {
   const rows = sortApps(visible());
-  $("#f-clear").hidden = !(filterState || filterDate || filterOpt);
+  $("#f-clear").hidden = !(filterState || filterDate || filterOpt || filterRef);
   $("#empty").hidden = APPS.length !== 0;
   $("#list").innerHTML = rows.map(card).join("");
   $$("#list .card").forEach((c) => (c.onclick = () => openDetail(c.dataset.id)));
@@ -166,6 +167,7 @@ function ini(a) { return esc((a.company || "?").trim().charAt(0).toUpperCase() |
 function card(a) {
   const due = a.nextDue ? `<span class="due">⏰ ${esc(a.nextAction || "next")} · ${a.nextDue}</span>` : "";
   const spons = a.sponsorVerdict ? sponBadge(a) : (a.sponsors ? `<span class="tag sp">sponsors</span>` : "");
+  const ref = a.referralStatus === "Referral secured" ? `<span class="tag rf">★ referral</span>` : (a.referralStatus === "Reached out" ? `<span class="tag rf out">↗ outreach</span>` : "");
   const st = a.state ? `<span class="tag st">${esc(a.state)}</span>` : "";
   const mt = a.matchPercent != null ? `<span class="tag mt ${a.matchPercent >= 75 ? "good" : a.matchPercent >= 50 ? "ok" : "low"}">${a.matchPercent}% match</span>` : "";
   const pr = a.priority ? `<span class="tag pr ${a.priority.toLowerCase()}">${esc(a.priority)}</span>` : "";
@@ -174,7 +176,7 @@ function card(a) {
     <div class="card-h"><span class="card-ico">${ini(a)}</span><b>${esc(a.company || "—")}</b><span class="pill ${a.status}">${a.status}</span></div>
     <div class="role">${esc(a.title || "")}</div>
     <div class="meta">${esc(a.dateApplied || "")}${a.location ? " · " + esc(a.location) : ""}${a.workMode ? " · " + esc(a.workMode) : ""}</div>
-    <div class="tags">${pr}${mt}${st}${spons}${tags}</div>${due}</article>`;
+    <div class="tags">${pr}${mt}${st}${spons}${ref}${tags}</div>${due}</article>`;
 }
 
 function renderActivity() {
@@ -255,6 +257,7 @@ function renderDetail(a) {
       <div class="detail-main">
         <div class="container"><div class="container-head">🛂 Visa sponsorship</div><div class="container-body" id="d-spon">${sponInner(a)}</div></div>
         <div class="container"><div class="container-head">🎯 JD ↔ résumé match</div><div class="container-body" id="d-match">${matchInner(a)}</div></div>
+        <div class="container"><div class="container-head">🎤 Interview prep</div><div class="container-body" id="d-prep">${prepInner(a)}</div></div>
         ${skillsBody ? `<div class="container"><div class="container-head">🧩 Skills &amp; tags</div><div class="container-body">${skillsBody}</div></div>` : ""}
         ${a.jd ? `<div class="container"><div class="container-head">📄 Job description</div><div class="container-body"><pre class="jd-text">${esc(a.jd)}</pre></div></div>` : ""}
         <div class="container"><div class="container-head">📎 Documents</div><div class="container-body">
@@ -273,6 +276,8 @@ function renderDetail(a) {
           ${kvRow("Seniority", a.seniority)}
           ${kvRow("Salary", a.salary)}
           ${kvRow("Source", a.source)}
+          ${kvRow("Referred by", a.referredBy)}
+          ${kvRow("Referral", a.referralStatus)}
           ${kvRow("Sponsors OPT", a.sponsors ? "yes" : "")}
           ${kvRow("Next action", a.nextAction)}
           ${kvRow("Due", a.nextDue)}
@@ -292,6 +297,7 @@ function renderDetail(a) {
   $("#d-del").onclick = () => delApp(a.appId);
   const mb = $("#d-match-btn"); if (mb) mb.onclick = () => runMatch(a.appId);
   const sb = $("#d-spon-btn"); if (sb) sb.onclick = () => runSponsor(a.appId);
+  const pb = $("#d-prep-btn"); if (pb) pb.onclick = () => runPrep(a.appId);
   $$("#detail-view .doclist a").forEach((el) => (el.onclick = async (e) => {
     e.preventDefault();
     const j = await api("GET", "/download?key=" + encodeURIComponent(el.dataset.key));
@@ -403,6 +409,36 @@ async function checkSponsorEdit() {
     if (s.sponsors) $("#app-form").sponsors.checked = true;
   } catch (e) { out.innerHTML = `<p class="err">${esc(e.message)}</p>`; }
   finally { btn.disabled = false; }
+}
+
+// ---------- interview prep --------------------------------------------------
+function prepInner(a) {
+  if (a.interviewPrep && a.interviewPrepAt) return prepResult(a);
+  if (!a.jd) return `<p class="muted">Add the job description (via <b>Edit</b>) to generate tailored interview prep.</p>`;
+  const hasR = (a.documents || []).length > 0;
+  return `<p class="muted">Turn this JD${hasR ? " + your résumé" : ""} into likely questions, talking points from your background, and sharp questions to ask them.</p>
+    <button class="btn primary" id="d-prep-btn">🎤 Generate interview prep</button> <span id="d-prep-msg" class="filenote"></span>`;
+}
+function prepResult(a) {
+  const p = a.interviewPrep || {};
+  const qs = (arr, sub) => (arr || []).map((x) => `<li><b>${esc(x.q)}</b>${x[sub] ? `<span class="prep-hint">${esc(x[sub])}</span>` : ""}</li>`).join("");
+  const plain = (arr) => (arr || []).map((x) => `<li>${esc(x)}</li>`).join("");
+  const sec = (title, body, cls) => body ? `<div class="prep-sec ${cls || ""}"><h4>${title}</h4><ul>${body}</ul></div>` : "";
+  return sec("💻 Technical", qs(p.technical, "hint"))
+    + sec("🗣️ Behavioral", qs(p.behavioral, "angle"))
+    + sec("⭐ Your talking points", plain(p.talkingPoints), "prep-good")
+    + sec("△ Likely gaps to prep", plain(p.gaps), "prep-gap")
+    + sec("❓ Ask them", plain(p.askThem))
+    + `<button class="btn sm" id="d-prep-btn">↻ Regenerate</button> <span id="d-prep-msg" class="filenote"></span>`;
+}
+async function runPrep(id) {
+  const btn = $("#d-prep-btn"), msg = $("#d-prep-msg");
+  if (btn) { btn.disabled = true; btn.textContent = "Coaching… (~15–30s)"; }
+  try {
+    await api("POST", `/applications/${id}/interview-prep`, {});
+    await load();
+    const a = APPS.find((x) => x.appId === id); if (a) renderDetail(a);
+  } catch (e) { if (msg) msg.textContent = e.message; if (btn) { btn.disabled = false; btn.textContent = "Generate interview prep"; } }
 }
 
 // ---------- edit view (inline, page-style) ---------------------------------
@@ -593,6 +629,11 @@ async function saveApp(e) {
   if (!f.company.value.trim() || !f.title.value.trim() || !f.dateApplied.value) {
     $("#form-err").textContent = "Company, title, and date applied are required."; return;
   }
+  if (!editing) { // warn on a likely duplicate (same company + title already tracked)
+    const nc = f.company.value.trim().toLowerCase(), nt = f.title.value.trim().toLowerCase();
+    const dup = APPS.find((a) => (a.company || "").trim().toLowerCase() === nc && (a.title || "").trim().toLowerCase() === nt);
+    if (dup && !confirm(`You already logged “${dup.company} — ${dup.title}” (${dup.dateApplied || "no date"}). Log another anyway?`)) return;
+  }
   const rec = { jd: $("#jd").value.trim() };
   FORM_FIELDS.forEach((k) => (rec[k] = f[k].value.trim ? f[k].value.trim() : f[k].value));
   rec.sponsors = f.sponsors.checked;
@@ -640,7 +681,8 @@ async function delApp(id) {
 
 function exportCsv() {
   const cols = ["company", "title", "status", "priority", "dateApplied", "location", "state", "workMode", "seniority",
-    "salary", "source", "url", "contactName", "contactEmail", "sponsors", "nextAction", "nextDue", "tags", "requiredSkills"];
+    "salary", "source", "url", "contactName", "contactEmail", "referredBy", "referralStatus", "sponsors", "sponsorVerdict",
+    "nextAction", "nextDue", "tags", "requiredSkills"];
   const q = (v) => `"${String(v == null ? "" : v).replace(/"/g, '""')}"`;
   const rows = [cols.join(",")].concat(APPS.map((a) => cols.map((c) => q(a[c])).join(",")));
   const url = URL.createObjectURL(new Blob([rows.join("\n")], { type: "text/csv" }));
@@ -800,7 +842,7 @@ document.addEventListener("click", (e) => { if (!e.target.closest(".pop-wrap")) 
 const closeDrawer = () => document.body.classList.remove("nav-open");
 $("#hamburger").onclick = () => document.body.classList.toggle("nav-open");
 $("#nav-backdrop").onclick = closeDrawer;
-$("#home-logo").onclick = () => { filterStatus = "all"; filterState = ""; filterDate = ""; filterOpt = false; query = ""; $("#search").value = ""; $("#f-state").value = ""; $("#f-date").value = ""; $("#f-opt").checked = false; render(); setView("all"); closeDrawer(); window.scrollTo(0, 0); };
+$("#home-logo").onclick = () => { filterStatus = "all"; filterState = ""; filterDate = ""; filterOpt = false; filterRef = false; query = ""; $("#search").value = ""; $("#f-state").value = ""; $("#f-date").value = ""; $("#f-opt").checked = false; $("#f-ref").checked = false; render(); setView("all"); closeDrawer(); window.scrollTo(0, 0); };
 $("#sidebar").addEventListener("click", (e) => { if (e.target.closest(".chip")) closeDrawer(); });
 $("#add").onclick = () => openEdit(null);
 $("#cancel").onclick = cancelEdit;
@@ -822,7 +864,8 @@ $("#analytics-btn").onclick = () => { const a = $("#analytics"); a.hidden = !a.h
 $("#f-state").onchange = (e) => { filterState = e.target.value; renderList(); };
 $("#f-date").onchange = (e) => { filterDate = e.target.value; renderActivity(); renderList(); };
 $("#f-opt").onchange = (e) => { filterOpt = e.target.checked; renderList(); };
-$("#f-clear").onclick = () => { filterState = ""; filterDate = ""; filterOpt = false; $("#f-state").value = ""; $("#f-date").value = ""; $("#f-opt").checked = false; renderActivity(); renderList(); renderStateFilter(); };
+$("#f-ref").onchange = (e) => { filterRef = e.target.checked; renderList(); };
+$("#f-clear").onclick = () => { filterState = ""; filterDate = ""; filterOpt = false; filterRef = false; $("#f-state").value = ""; $("#f-date").value = ""; $("#f-opt").checked = false; $("#f-ref").checked = false; renderActivity(); renderList(); renderStateFilter(); };
 $("#search").oninput = (e) => { query = e.target.value; currentDetail = null; showOnly("#list-view"); renderList(); };
 $("#sort").onchange = (e) => { sortBy = e.target.value; renderList(); };
 document.onkeydown = (e) => {
