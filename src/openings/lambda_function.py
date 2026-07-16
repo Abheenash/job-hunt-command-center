@@ -57,11 +57,33 @@ WORKDAY = [{"name": "Red Hat", "tenant": "redhat", "dc": "wd5", "site": "Jobs"}]
 AMAZON_QUERIES = ["cloud support engineer", "support engineer", "site reliability engineer", "devops engineer"]
 
 # --- role / level / location matching ----------------------------------------
+# Titles that genuinely fit the candidate: entry-level cloud / DevOps / SRE / cloud-
+# support / platform / infrastructure / systems. Deliberately NARROW. A generic
+# "Software Engineer" only qualifies with an infra signal (SWE_INFRA_RE), and off-target
+# specialties (frontend/backend/ML/data/security/etc.) are rejected (OFFTARGET_RE).
 ROLE_RE = re.compile(
-    r"\b(cloud|devops|sre|site\s*reliability|support engineer|systems? engineer|"
-    r"platform engineer|infrastructure engineer|cloud engineer|solutions? architect|"
-    r"technical support|reliability engineer|systems? admin|software (developer|engineer)|"
-    r"network operations|data engineer)\b", re.I)
+    r"\b(devops|dev ops|\bsre\b|site\s*reliability|reliability engineer|"
+    r"cloud engineer|cloud infrastructure|cloud operations|cloud[- ]?ops|cloud support|"
+    r"platform engineer|platform engineering|infrastructure engineer|infrastructure engineering|"
+    r"systems? engineer|systems? administrator|sysadmin|"
+    r"(cloud|technical|product|it|customer) support engineer|"
+    r"solutions? architect|network (operations|engineer)|\bnoc\b|"
+    r"build (and|&) release|release engineer|devsecops)\b", re.I)
+# A generic "Software Engineer" title only qualifies when paired with an infra signal.
+SWE_INFRA_RE = re.compile(
+    r"software engineer.{0,45}(infrastructure|platform|cloud|reliability|\bsre\b|devops|"
+    r"systems|networking|compute|observability|developer productivity|dev velocity)|"
+    r"(infrastructure|platform|cloud|reliability|\bsre\b|devops|compute).{0,25}software engineer", re.I)
+# Off-target specialties — reject even if a generic keyword slipped through.
+OFFTARGET_RE = re.compile(
+    r"\b(front[- ]?end|frontend|full[- ]?stack|back[- ]?end|backend|mobile|ios|android|web developer|"
+    r"(machine learning|\bml\b|\bai\b|deep learning) engineer|data scien|applied scien|"
+    r"research (scientist|engineer)|data engineer|data analyst|analytics engineer|"
+    r"product manager|program manager|project manager|designer|\bux\b|\bui\b|"
+    r"game|gameplay|graphics|firmware|embedded|hardware|asic|silicon|"
+    r"sales|account executive|solutions engineer|marketing|recruit|"
+    r"accountant|financial analyst|security (engineer|software engineer)|detection|"
+    r"offensive|red team|malware|blockchain|smart contract|quant)\b", re.I)
 SENIOR_RE = re.compile(r"\b(senior|staff|principal|lead|sr\.?|manager|director|distinguished|head of|vp|iii|iv)\b", re.I)
 JUNIOR_RE = re.compile(r"\b(associate|junior|jr\.?|entry[-\s]?level|new[-\s]?grad|graduate|early[-\s]?career|university|early in career|level 1|\bl1\b|\bi\b|apprentice)\b", re.I)
 INTERN_RE = re.compile(r"\bintern(ship)?\b", re.I)
@@ -84,6 +106,13 @@ US_STATE_RE = re.compile(r",\s*(" + "|".join(US_STATES) + r")\b")  # "Austin, TX
 TX_RE = re.compile(r"(,\s*tx\b)|\btexas\b|\b(houston|austin|dallas|san antonio|fort worth|"
                    r"el paso|plano|irving|frisco|mckinney|round rock|the woodlands|sugar land|"
                    r"richardson|westlake|las colinas)\b", re.I)
+# Major US tech hubs (no state code) so a bare-city location still counts as US, not unknown.
+US_CITY_RE = re.compile(r"\b(san francisco|sf bay|bay area|new york|nyc|brooklyn|seattle|bellevue|"
+                        r"redmond|boston|chicago|denver|boulder|atlanta|los angeles|santa monica|"
+                        r"san jose|palo alto|mountain view|sunnyvale|cupertino|menlo park|san mateo|"
+                        r"santa clara|oakland|reston|herndon|mclean|philadelphia|pittsburgh|miami|"
+                        r"portland|salt lake|phoenix|nashville|charlotte|raleigh|durham|columbus|"
+                        r"minneapolis|san diego|sacramento|irvine|culver city|jersey city)\b", re.I)
 
 SKILL_KW = ["aws", "lambda", "s3", "dynamodb", "ec2", "ecs", "eks", "kubernetes", "terraform",
             "ci/cd", "cicd", "github actions", "docker", "cloudwatch", "devops", "sre",
@@ -96,7 +125,12 @@ PROFILE = (
     "Architect Associate, ~1-2 years DevOps / cloud-operations + C++ systems experience. "
     "Skills: AWS (Lambda, S3, DynamoDB, ECS, EKS, CloudWatch), Terraform, Docker/Kubernetes, "
     "CI/CD (GitHub Actions), Linux, Python, C++, IAM/VPC/networking, observability/SRE, "
-    "incident response. On F-1 OPT — needs future H-1B sponsorship. Houston TX; remote or relocate."
+    "incident response. On F-1 OPT — needs future H-1B sponsorship. Houston TX; remote or relocate. "
+    "TARGET ROLES (score domain HIGH): Cloud Engineer, Cloud Support Engineer, DevOps Engineer, "
+    "Site Reliability Engineer (SRE), Platform Engineer, Infrastructure Engineer, Systems Engineer, "
+    "Cloud Operations, Solutions Architect (associate/entry). NOT A FIT (score domain LOW): "
+    "frontend, mobile, full-stack or backend product engineering, data science / ML / AI, data "
+    "engineering, security engineering, embedded / firmware / hardware, and any senior/staff/principal role."
 )
 
 # sponsorship kill-phrases (mirrors the /sponsorship checker's negative scan)
@@ -133,8 +167,12 @@ def _clean_html(s):
 
 
 def _relevant(title):
-    """A role we care about, and not an internship (candidate isn't a student)."""
-    return bool(ROLE_RE.search(title or "")) and not INTERN_RE.search(title or "")
+    """A role that genuinely fits the candidate (cloud / DevOps / SRE / support /
+    platform / infra) — not an internship, and not an off-target specialty."""
+    t = title or ""
+    if INTERN_RE.search(t) or OFFTARGET_RE.search(t):
+        return False
+    return bool(ROLE_RE.search(t) or SWE_INFRA_RE.search(t))
 
 
 # --- source collectors (each returns a list of raw opening dicts) ------------
@@ -268,14 +306,14 @@ def _geo_tier(o):
         return 0
     if "remote" in loc.lower():
         return 1
-    if US_POS_RE.search(loc) or US_STATE_RE.search(loc):
+    if US_POS_RE.search(loc) or US_STATE_RE.search(loc) or US_CITY_RE.search(loc):
         return 2
     return 3
 
 
 def _base_score(o):
     title, jd = o["title"], (o.get("jd") or "").lower()
-    s = 40 if ROLE_RE.search(title) else 0
+    s = 40 if (ROLE_RE.search(title) or SWE_INFRA_RE.search(title)) else 0
     if JUNIOR_RE.search(title):
         s += 22
     if SENIOR_RE.search(title):
