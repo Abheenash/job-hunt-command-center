@@ -844,8 +844,8 @@ function opCard(o, i) {
     <div class="op-side">
       <div class="op-fit ${opFitClass(fit)}"><b>${fit}%</b><span>fit</span></div>
       <a class="btn sm" href="${esc(o.url || "#")}" target="_blank" rel="noopener">Apply ↗</a>
-      <button class="btn sm primary op-track" data-i="${i}">+ Track</button>
-      <button class="btn sm ghost op-dismiss" data-i="${i}" title="Not interested — hide this">✕ Not interested</button>
+      <button class="btn sm primary op-track" data-id="${esc(o.id || "")}">+ Track</button>
+      <button class="btn sm ghost op-dismiss" data-id="${esc(o.id || "")}" title="Not interested — hide this">✕ Not interested</button>
     </div>
   </article>`;
 }
@@ -884,6 +884,109 @@ function opSourcesPanel() {
     <p class="op-src-note">Limits, honestly: this reads ATS boards only — if a company switches ATS or gates its board, that source can go quiet with no error. It's a strong daily shortlist, not the whole market. A manual LinkedIn/Indeed pass is the other half of the job.</p>
   </details>`;
 }
+// ---- Openings filters + sorting (all client-side over the loaded list) ------
+let opFilters = { q: "", state: "", sponsor: "", minFit: 0, sort: "geo" };
+const STATE_NAMES = { alabama: "AL", alaska: "AK", arizona: "AZ", arkansas: "AR", california: "CA",
+  colorado: "CO", connecticut: "CT", delaware: "DE", florida: "FL", georgia: "GA", hawaii: "HI",
+  idaho: "ID", illinois: "IL", indiana: "IN", iowa: "IA", kansas: "KS", kentucky: "KY",
+  louisiana: "LA", maine: "ME", maryland: "MD", massachusetts: "MA", michigan: "MI",
+  minnesota: "MN", mississippi: "MS", missouri: "MO", montana: "MT", nebraska: "NE", nevada: "NV",
+  "new hampshire": "NH", "new jersey": "NJ", "new mexico": "NM", "new york": "NY",
+  "north carolina": "NC", "north dakota": "ND", ohio: "OH", oklahoma: "OK", oregon: "OR",
+  pennsylvania: "PA", "rhode island": "RI", "south carolina": "SC", "south dakota": "SD",
+  tennessee: "TN", texas: "TX", utah: "UT", vermont: "VT", virginia: "VA", washington: "WA",
+  "west virginia": "WV", wisconsin: "WI", wyoming: "WY", "district of columbia": "DC" };
+const _geoVal = (o) => (o.geo == null ? 2 : o.geo);
+function opStatesOf(o) {
+  const loc = o.location || "", set = new Set();
+  let m; const re = /,\s*([A-Za-z]{2})\b/g;
+  while ((m = re.exec(loc))) { const c = m[1].toUpperCase(); if (US_STATES.includes(c)) set.add(c); }
+  const low = loc.toLowerCase();
+  Object.keys(STATE_NAMES).forEach((name) => { if (low.includes(name)) set.add(STATE_NAMES[name]); });
+  return set;
+}
+function opAvailStates() {
+  const s = new Set();
+  OPENINGS.forEach((o) => opStatesOf(o).forEach((c) => s.add(c)));
+  return [...s].sort();
+}
+function opMatchesFilters(o) {
+  const f = opFilters;
+  if (f.q) {
+    const hay = ((o.company || "") + " " + (o.title || "") + " " + (o.location || "")).toLowerCase();
+    if (!hay.includes(f.q.toLowerCase())) return false;
+  }
+  if (f.state) {
+    if (f.state === "Remote") { if (!/remote/i.test(o.location || "")) return false; }
+    else if (!opStatesOf(o).has(f.state)) return false;
+  }
+  if (f.sponsor) {
+    const risky = o.blocked || o.sponsorRisk === "high";
+    if (f.sponsor === "friendly" && !(o.sponsorRisk === "low" && !o.blocked)) return false;
+    if (f.sponsor === "verify" && !(o.sponsorRisk === "med" && !o.blocked)) return false;
+    if (f.sponsor === "risk" && !risky) return false;
+  }
+  if (f.minFit && (o.fit || 0) < f.minFit) return false;
+  return true;
+}
+function opSortCmp(a, b) {
+  switch (opFilters.sort) {
+    case "fit": return (b.fit || 0) - (a.fit || 0);
+    case "new": return (b.firstSeenAt || 0) - (a.firstSeenAt || 0);
+    case "soon": return (a.expireAt || 9e15) - (b.expireAt || 9e15);
+    case "company": return (a.company || "").localeCompare(b.company || "");
+    default: return _geoVal(a) - _geoVal(b) || (b.fit || 0) - (a.fit || 0);
+  }
+}
+function applyOpFilters() { return OPENINGS.filter(opMatchesFilters).sort(opSortCmp); }
+function opSel(v, cur) { return v === cur ? " selected" : ""; }
+function opFilterBar() {
+  const f = opFilters;
+  const stateOpts = [`<option value=""${opSel("", f.state)}>All locations</option>`,
+    `<option value="Remote"${opSel("Remote", f.state)}>🏠 Remote</option>`]
+    .concat(opAvailStates().map((c) => `<option value="${c}"${opSel(c, f.state)}>${c}${c === "TX" ? " ★ Texas" : ""}</option>`)).join("");
+  const opt = (pairs, cur) => pairs.map(([v, l]) => `<option value="${v}"${opSel(String(v), String(cur))}>${l}</option>`).join("");
+  return `<div class="op-filters">
+    <input id="opf-q" class="op-f" type="search" placeholder="🔎 Search company / title…" value="${esc(f.q)}">
+    <select id="opf-state" class="op-f" title="Location / state">${stateOpts}</select>
+    <select id="opf-sponsor" class="op-f" title="Sponsorship">${opt([["", "All sponsorship"], ["friendly", "✓ Sponsor-friendly"], ["verify", "~ Verify sponsorship"], ["risk", "✗ Risk / blocked"]], f.sponsor)}</select>
+    <select id="opf-fit" class="op-f" title="Minimum match %">${opt([[0, "Any match %"], [50, "50%+ match"], [70, "70%+ match"], [80, "80%+ match"]], f.minFit)}</select>
+    <label class="op-f-sort">Sort <select id="opf-sort" class="op-f">${opt([["geo", "Texas first"], ["fit", "Best match %"], ["new", "Newest"], ["soon", "Leaving soon"], ["company", "Company A–Z"]], f.sort)}</select></label>
+    <span id="op-count-live" class="op-count"></span>
+    <button id="opf-clear" class="btn sm ghost">Clear</button>
+  </div>`;
+}
+function wireOpCardButtons() {
+  $$("#openings-view .op-track").forEach((b) => (b.onclick = () => {
+    const o = OPENINGS.find((x) => x.id === b.dataset.id); if (!o) return;
+    openEdit(null, { company: o.company, title: o.title, location: o.location, url: o.url, jd: o.jd, workMode: /remote/i.test(o.location || "") ? "Remote" : "", _openingId: o.id });
+  }));
+  $$("#openings-view .op-dismiss").forEach((b) => (b.onclick = () => dismissOpening(b.dataset.id)));
+}
+function resetOpFilters() { opFilters = { q: "", state: "", sponsor: "", minFit: 0, sort: "geo" }; renderOpenings(); }
+function renderOpList() {
+  const box = $("#op-results"); if (!box) return;
+  const rows = applyOpFilters();
+  const cnt = $("#op-count-live");
+  if (cnt) cnt.textContent = rows.length === OPENINGS.length ? `${rows.length} shown` : `${rows.length} of ${OPENINGS.length}`;
+  box.innerHTML = rows.length
+    ? `<div class="op-list">${rows.map(opCard).join("")}</div>`
+    : `<p class="empty">No openings match these filters. <button id="opf-clear2" class="linkish">Clear filters</button></p>`;
+  const c2 = $("#opf-clear2"); if (c2) c2.onclick = resetOpFilters;
+  wireOpCardButtons();
+}
+function updateOpMeta() {
+  const now = Math.floor(Date.now() / 1000);
+  const nNew = OPENINGS.filter((o) => o.firstSeenAt && now - o.firstSeenAt < NEW_WINDOW).length;
+  const nSoon = OPENINGS.filter((o) => o.expireAt && o.expireAt - now < SOON_WINDOW).length;
+  const last = OPENINGS.reduce((m, o) => Math.max(m, o.lastSeenAt || 0), 0);
+  const meta = [];
+  if (last) meta.push(`Last scan ${relAgo(last)}`);
+  meta.push(`${OPENINGS.length} live`);
+  if (nNew) meta.push(`<b class="op-c new">${nNew} new</b>`);
+  if (nSoon) meta.push(`<b class="op-c soon">${nSoon} leaving soon</b>`);
+  const el = $("#openings-view .op-meta"); if (el) el.innerHTML = meta.join(" · ");
+}
 function renderOpenings() {
   const el = $("#openings-view"); if (!el) return;
   const now = Math.floor(Date.now() / 1000);
@@ -900,22 +1003,24 @@ function renderOpenings() {
       <div class="head-actions"><button id="op-rescan" class="btn">↻ Rescan</button></div></div>
     ${opSourcesPanel()}
     <div class="container"><div class="container-body">
-      ${OPENINGS.length ? `<div class="op-list">${OPENINGS.map(opCard).join("")}</div>`
+      ${OPENINGS.length ? `${opFilterBar()}<div id="op-results"></div>`
       : `<p class="empty">No openings right now. Hit <b>↻ Rescan</b> to pull the latest (~1–2 min); new finds are added without wiping what's here.</p>`}
     </div></div>`;
   $("#op-rescan").onclick = rescanOpenings;
-  $$("#openings-view .op-track").forEach((b) => (b.onclick = () => {
-    const o = OPENINGS[+b.dataset.i]; if (!o) return;
-    openEdit(null, { company: o.company, title: o.title, location: o.location, url: o.url, jd: o.jd, workMode: /remote/i.test(o.location || "") ? "Remote" : "", _openingId: o.id });
-  }));
-  $$("#openings-view .op-dismiss").forEach((b) => (b.onclick = () => dismissOpening(+b.dataset.i)));
+  const q = $("#opf-q"); if (q) q.oninput = () => { opFilters.q = q.value; renderOpList(); };
+  const st = $("#opf-state"); if (st) st.onchange = () => { opFilters.state = st.value; renderOpList(); };
+  const sp = $("#opf-sponsor"); if (sp) sp.onchange = () => { opFilters.sponsor = sp.value; renderOpList(); };
+  const ft = $("#opf-fit"); if (ft) ft.onchange = () => { opFilters.minFit = +ft.value; renderOpList(); };
+  const so = $("#opf-sort"); if (so) so.onchange = () => { opFilters.sort = so.value; renderOpList(); };
+  const cl = $("#opf-clear"); if (cl) cl.onclick = resetOpFilters;
+  if (OPENINGS.length) renderOpList();
 }
-async function dismissOpening(i) {
-  const o = OPENINGS[i]; if (!o) return;
-  OPENINGS.splice(i, 1);
+async function dismissOpening(id) {
+  const idx = OPENINGS.findIndex((x) => x.id === id); if (idx < 0) return;
+  OPENINGS.splice(idx, 1);
   const c = $("#openings-count"); if (c) c.textContent = OPENINGS.length;
-  renderOpenings();
-  if (o.id) { try { await api("POST", `/openings/${encodeURIComponent(o.id)}/dismiss`, {}); } catch (_e) { /* stays hidden locally regardless */ } }
+  renderOpList(); updateOpMeta();
+  if (id) { try { await api("POST", `/openings/${encodeURIComponent(id)}/dismiss`, {}); } catch (_e) { /* stays hidden locally regardless */ } }
 }
 async function rescanOpenings() {
   const btn = $("#op-rescan"); if (btn) { btn.disabled = true; btn.textContent = "Scanning… (~1–2 min)"; }

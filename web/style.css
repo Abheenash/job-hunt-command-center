@@ -462,6 +462,12 @@ main { flex: 1; min-width: 0; padding: 1.1rem 1.5rem 2rem; max-width: 1180px; }
 .op-src-note { font-size: .77rem; color: var(--muted); font-style: italic; padding: .3rem 1rem 1rem; margin: 0; border-top: 1px solid var(--border-soft); }
 @media (max-width: 820px) { .op-src-body { grid-template-columns: 1fr; } }
 .op-meta { font-size: .8rem; color: var(--muted); margin-top: .35rem; }
+.op-filters { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-bottom: .9rem; }
+.op-f { padding: .38rem .55rem; border: 1px solid var(--border); border-radius: 8px; font-size: .82rem; background: #fff; color: var(--text); }
+input.op-f { min-width: 190px; flex: 1 1 190px; }
+.op-f-sort { display: inline-flex; align-items: center; gap: .3rem; font-size: .8rem; color: var(--muted); }
+.op-count { font-size: .8rem; color: var(--muted); margin-left: auto; white-space: nowrap; }
+.linkish { background: none; border: none; color: var(--link); cursor: pointer; text-decoration: underline; font: inherit; padding: 0; }
 .op-meta .op-c { font-weight: 800; }
 .op-meta .op-c.new { color: #0653c9; }
 .op-meta .op-c.soon { color: #8a5a00; }
