@@ -69,6 +69,7 @@
           <button class="chip view on" data-v="all">📋 All applications</button>
           <button class="chip view" data-v="todo">⏰ Follow-ups<span id="todo-count">0</span></button>
           <button class="chip view" data-v="inbox">📨 Inbox<span id="inbox-count">0</span></button>
+          <button class="chip view" data-v="openings">🔎 Openings<span id="openings-count">0</span></button>
         </nav>
         <div class="side-sub">Status</div>
         <nav id="filters"></nav>
@@ -125,6 +126,9 @@
 
         <!-- INBOX VIEW (job-related emails, rendered by JS) -->
         <div id="inbox-view" hidden></div>
+
+        <!-- OPENINGS RADAR VIEW (scanned + ranked, rendered by JS) -->
+        <div id="openings-view" hidden></div>
 
         <!-- EDIT VIEW (inline, page-style) -->
         <div id="edit-view" hidden>

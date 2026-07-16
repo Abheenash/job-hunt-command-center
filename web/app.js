@@ -192,7 +192,7 @@ function renderActivity() {
 }
 
 // ---------- detail view (portfolio-style) ----------------------------------
-function showOnly(sel) { ["#list-view", "#detail-view", "#edit-view", "#todo-view", "#inbox-view"].forEach((s) => ($(s).hidden = s !== sel)); }
+function showOnly(sel) { ["#list-view", "#detail-view", "#edit-view", "#todo-view", "#inbox-view", "#openings-view"].forEach((s) => ($(s).hidden = s !== sel)); }
 function openDetail(id) { const a = APPS.find((x) => x.appId === id); if (!a) return; currentDetail = id; renderDetail(a); showOnly("#detail-view"); window.scrollTo(0, 0); }
 function closeDetail() { currentDetail = null; showOnly(currentView === "todo" ? "#todo-view" : "#list-view"); }
 
@@ -202,6 +202,7 @@ function setView(v) {
   $$("#views .view").forEach((b) => b.classList.toggle("on", b.dataset.v === v));
   if (v === "todo") { renderTodo(); showOnly("#todo-view"); }
   else if (v === "inbox") { renderInbox(); showOnly("#inbox-view"); }
+  else if (v === "openings") { renderOpenings(); showOnly("#openings-view"); }
   else { showOnly("#list-view"); }
 }
 
@@ -442,9 +443,10 @@ async function runPrep(id) {
 }
 
 // ---------- edit view (inline, page-style) ---------------------------------
-function openEdit(id) {
+function openEdit(id, prefill) {
   editing = id || null;
-  const a = id ? APPS.find((x) => x.appId === id) : {};
+  pendingOpeningId = (!id && prefill && prefill._openingId) || null;
+  const a = id ? APPS.find((x) => x.appId === id) : (prefill || {});
   const f = $("#app-form");
   f.reset();
   $("#edit-title").textContent = id ? "Edit application" : "Log application";
@@ -461,7 +463,7 @@ function openEdit(id) {
   renderDocs(a.documents || []);
   showOnly("#edit-view"); window.scrollTo(0, 0);
 }
-function cancelEdit() { const id = editing; editing = null; if (id) openDetail(id); else showOnly("#list-view"); }
+function cancelEdit() { const id = editing; editing = null; pendingOpeningId = null; if (id) openDetail(id); else showOnly("#list-view"); }
 const today = () => new Date().toISOString().slice(0, 10);
 
 function renderDocs(docs) {
@@ -658,6 +660,13 @@ async function saveApp(e) {
       } catch (_e) { /* PDF not ready / compile failed — the .tex is still downloadable */ }
     }
     const savedId = saved.appId;
+    if (pendingOpeningId) { // logged from an opening -> drop it from the radar + flag it tracked
+      const oid = pendingOpeningId;
+      OPENINGS = OPENINGS.filter((o) => o.id !== oid);
+      const c = $("#openings-count"); if (c) c.textContent = OPENINGS.length;
+      api("POST", `/openings/${encodeURIComponent(oid)}/track`, { appId: savedId }).catch(() => {});
+    }
+    pendingOpeningId = null;
     const autoMatch = !!file && !!rec.jd && rec.jd.length >= 20; // new résumé + a JD -> auto-match
     await load();
     editing = null; openDetail(savedId);
@@ -786,6 +795,139 @@ function renderInbox() {
 }
 function togglePop(sel) { ["#acct-pop", "#notif-pop"].forEach((s) => { if (s !== sel) $(s).hidden = true; }); const p = $(sel); p.hidden = !p.hidden; }
 
+// ---------- Openings Radar (scanned, ranked job discovery) ------------------
+let OPENINGS = [];
+let pendingOpeningId = null; // set when the editor was opened from an opening -> track on save
+const NEW_WINDOW = 36 * 3600;   // "new" if first seen within ~a scan cycle
+const SOON_WINDOW = 2 * 86400;  // "leaving soon" if it ages out within 2 days
+function relAgo(ts) {
+  if (!ts) return "";
+  const s = Math.floor(Date.now() / 1000) - ts;
+  if (s < 3600) return Math.max(1, Math.floor(s / 60)) + "m ago";
+  if (s < 86400) return Math.floor(s / 3600) + "h ago";
+  return Math.floor(s / 86400) + "d ago";
+}
+async function loadOpenings() {
+  try { OPENINGS = (await api("GET", "/openings")).openings || []; } catch (_e) { OPENINGS = []; }
+  const c = $("#openings-count"); if (c) c.textContent = OPENINGS.length;
+  if (currentView === "openings" && $("#openings-view") && !$("#openings-view").hidden) renderOpenings();
+}
+function opRisk(o) {
+  if (o.blocked || o.sponsorRisk === "high") return `<span class="op-spon bad">✗ sponsorship risk</span>`;
+  if (o.sponsorRisk === "low") return `<span class="op-spon ok">✓ sponsor-friendly</span>`;
+  return `<span class="op-spon med">~ verify sponsorship</span>`;
+}
+function opFitClass(f) { return f >= 75 ? "good" : f >= 55 ? "ok" : "low"; }
+function opBadges(o) {
+  const now = Math.floor(Date.now() / 1000);
+  let h = "";
+  if (o.firstSeenAt && now - o.firstSeenAt < NEW_WINDOW) h += `<span class="op-badge new">🆕 New</span>`;
+  if (o.expireAt && o.expireAt - now < SOON_WINDOW) h += `<span class="op-badge soon" title="Aging out soon — Apply or Track it to keep it">⏳ Leaving soon</span>`;
+  return h;
+}
+function opCard(o, i) {
+  const fit = o.fit || 0;
+  return `<article class="op-card">
+    <div class="op-rank">${i + 1}</div>
+    <div class="op-main">
+      <div class="op-top"><b>${esc(o.company || "—")}</b><span class="op-src">${esc(o.source || "")}</span>${opBadges(o)}</div>
+      <div class="op-title">${esc(o.title || "")}</div>
+      <div class="op-loc">${esc(o.location || "")}</div>
+      ${o.reason ? `<p class="op-reason">${esc(o.reason)}</p>` : ""}
+      <div class="op-tags">${opRisk(o)}</div>
+    </div>
+    <div class="op-side">
+      <div class="op-fit ${opFitClass(fit)}"><b>${fit}%</b><span>fit</span></div>
+      <a class="btn sm" href="${esc(o.url || "#")}" target="_blank" rel="noopener">Apply ↗</a>
+      <button class="btn sm primary op-track" data-i="${i}">+ Track</button>
+      <button class="btn sm ghost op-dismiss" data-i="${i}" title="Not interested — hide this">✕ Not interested</button>
+    </div>
+  </article>`;
+}
+function opSourcesPanel() {
+  return `<details class="op-sources">
+    <summary>ℹ️ Where these come from — and what to check yourself</summary>
+    <div class="op-src-body">
+      <div class="op-src-col">
+        <h4>✅ Auto-scanned daily</h4>
+        <p>Documented ATS job-board JSON (no bot-blocking), refreshed every morning + on Rescan:</p>
+        <ul>
+          <li><b>~60 sponsor-friendly tech companies</b> on Greenhouse &amp; Ashby — Twilio, Cloudflare, Datadog, Stripe, Snowflake, Confluent, OpenAI, Databricks, MongoDB, Elastic, Coinbase, Reddit, Figma, Okta, PagerDuty, HashiCorp-adjacent…</li>
+          <li><b>Amazon / AWS</b> (amazon.jobs) — cloud support · SRE · DevOps</li>
+          <li><b>Red Hat</b> (Workday)</li>
+        </ul>
+      </div>
+      <div class="op-src-col">
+        <h4>🔍 Not covered — search these yourself</h4>
+        <ul>
+          <li><b>LinkedIn Jobs &amp; Indeed</b> — biggest volume, and they carry OPT/visa filters</li>
+          <li><b>Google, Microsoft, Meta, Apple, Salesforce, Nvidia, IBM, Cisco, Adobe</b> — custom / Workday portals not wired in</li>
+          <li>Other ATSes: <b>Lever, SmartRecruiters, iCIMS, Oracle, Jobvite</b>, plus Workday tenants beyond Red Hat</li>
+          <li>Startup boards: <b>Wellfound, BuiltIn, YC Work-at-a-Startup</b></li>
+        </ul>
+      </div>
+      <div class="op-src-col">
+        <h4>💡 How to search them fast</h4>
+        <ul>
+          <li><b>LinkedIn:</b> <i>"cloud support engineer" OR devops OR "site reliability"</i> → filter <i>Past week</i> + <i>Entry/Associate</i> → save it as a job alert.</li>
+          <li><b>Google dorks:</b> <code>site:boards.greenhouse.io ("devops" OR "sre") "united states"</code> — swap in <code>jobs.lever.co</code> or <code>jobs.ashbyhq.com</code>.</li>
+          <li><b>Check sponsorship first:</b> look a company up on myvisajobs.com / h1bgrader.com (or the 🛂 checker here), then go to its careers page.</li>
+          <li><b>Wellfound</b> has a "will sponsor visa" toggle — fast filter.</li>
+        </ul>
+      </div>
+    </div>
+    <p class="op-src-note">Limits, honestly: this reads ATS boards only — if a company switches ATS or gates its board, that source can go quiet with no error. It's a strong daily shortlist, not the whole market. A manual LinkedIn/Indeed pass is the other half of the job.</p>
+  </details>`;
+}
+function renderOpenings() {
+  const el = $("#openings-view"); if (!el) return;
+  const now = Math.floor(Date.now() / 1000);
+  const nNew = OPENINGS.filter((o) => o.firstSeenAt && now - o.firstSeenAt < NEW_WINDOW).length;
+  const nSoon = OPENINGS.filter((o) => o.expireAt && o.expireAt - now < SOON_WINDOW).length;
+  const last = OPENINGS.reduce((m, o) => Math.max(m, o.lastSeenAt || 0), 0);
+  const meta = [];
+  if (last) meta.push(`Last scan ${relAgo(last)}`);
+  meta.push(`${OPENINGS.length} live`);
+  if (nNew) meta.push(`<b class="op-c new">${nNew} new</b>`);
+  if (nSoon) meta.push(`<b class="op-c soon">${nSoon} leaving soon</b>`);
+  el.innerHTML = `<div class="page-head"><div><h1>🔎 Openings</h1><p class="sub">Entry-level cloud · DevOps · SRE · support roles scanned across sponsor-friendly companies, ranked by fit for you. New finds are merged in and kept; ones you don't act on age out after about a week (weaker matches sooner). Sponsorship risk is flagged from the JD — always verify the live posting.</p>
+      <p class="op-meta">${meta.join(" · ")}</p></div>
+      <div class="head-actions"><button id="op-rescan" class="btn">↻ Rescan</button></div></div>
+    ${opSourcesPanel()}
+    <div class="container"><div class="container-body">
+      ${OPENINGS.length ? `<div class="op-list">${OPENINGS.map(opCard).join("")}</div>`
+      : `<p class="empty">No openings right now. Hit <b>↻ Rescan</b> to pull the latest (~1–2 min); new finds are added without wiping what's here.</p>`}
+    </div></div>`;
+  $("#op-rescan").onclick = rescanOpenings;
+  $$("#openings-view .op-track").forEach((b) => (b.onclick = () => {
+    const o = OPENINGS[+b.dataset.i]; if (!o) return;
+    openEdit(null, { company: o.company, title: o.title, location: o.location, url: o.url, jd: o.jd, workMode: /remote/i.test(o.location || "") ? "Remote" : "", _openingId: o.id });
+  }));
+  $$("#openings-view .op-dismiss").forEach((b) => (b.onclick = () => dismissOpening(+b.dataset.i)));
+}
+async function dismissOpening(i) {
+  const o = OPENINGS[i]; if (!o) return;
+  OPENINGS.splice(i, 1);
+  const c = $("#openings-count"); if (c) c.textContent = OPENINGS.length;
+  renderOpenings();
+  if (o.id) { try { await api("POST", `/openings/${encodeURIComponent(o.id)}/dismiss`, {}); } catch (_e) { /* stays hidden locally regardless */ } }
+}
+async function rescanOpenings() {
+  const btn = $("#op-rescan"); if (btn) { btn.disabled = true; btn.textContent = "Scanning… (~1–2 min)"; }
+  const baseline = OPENINGS.reduce((m, o) => Math.max(m, o.lastSeenAt || 0), 0);
+  try {
+    await api("POST", "/openings/scan", {});
+    // Openings persist now, so poll until a fresher scan lands (newer lastSeenAt) or timeout.
+    for (let i = 0; i < 10; i++) {
+      await new Promise((r) => setTimeout(r, 12000));
+      await loadOpenings();
+      if (OPENINGS.reduce((m, o) => Math.max(m, o.lastSeenAt || 0), 0) > baseline) break;
+    }
+  } catch (_e) { /* leave button re-enabled below */ }
+  const b = $("#op-rescan"); if (b) { b.disabled = false; b.textContent = "↻ Rescan"; }
+  renderOpenings();
+}
+
 // ---------- Ask AI (natural-language over your applications) ----------------
 function aiBubble(role, html) {
   const d = document.createElement("div");
@@ -817,6 +959,7 @@ function show(authed) {
   if (authed) {
     load().catch((e) => console.error(e));
     loadNotifications();
+    loadOpenings();
   }
 }
 

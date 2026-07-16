@@ -421,3 +421,46 @@ main { flex: 1; min-width: 0; padding: 1.1rem 1.5rem 2rem; max-width: 1180px; }
 .prep-hint { display: block; color: var(--muted); font-size: .8rem; margin-top: .15rem; }
 .prep-good h4 { color: var(--ok); } .prep-good li::before { color: var(--ok); }
 .prep-gap h4 { color: #b35900; } .prep-gap li::before { color: #b35900; }
+
+/* ---------- Openings Radar ---------- */
+.op-list { display: flex; flex-direction: column; gap: .7rem; }
+.op-card { display: flex; gap: .9rem; align-items: flex-start; padding: .9rem 1rem; border: 1px solid var(--border-soft); border-radius: 12px; background: #fff; }
+.op-card:hover { border-color: var(--border); box-shadow: 0 2px 10px rgba(0,0,0,.05); }
+.op-rank { width: 26px; height: 26px; flex: none; border-radius: 50%; background: var(--bg); color: var(--muted); font-weight: 800; font-size: .8rem; display: grid; place-items: center; margin-top: 2px; }
+.op-main { flex: 1; min-width: 0; }
+.op-top { display: flex; align-items: baseline; gap: .5rem; }
+.op-top b { font-size: .95rem; } .op-src { font-size: .68rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); background: var(--bg); border-radius: 4px; padding: .05rem .35rem; }
+.op-title { font-weight: 700; color: var(--link); font-size: .92rem; margin: .1rem 0; }
+.op-loc { color: var(--muted); font-size: .82rem; }
+.op-reason { font-size: .84rem; color: var(--text); margin: .4rem 0 .3rem; }
+.op-tags { display: flex; flex-wrap: wrap; gap: .35rem; }
+.op-spon { font-size: .7rem; font-weight: 700; border-radius: 20px; padding: .1rem .5rem; }
+.op-spon.ok { background: #e6f6e9; color: #0a7d1b; } .op-spon.med { background: #fff2d9; color: #8a5a00; } .op-spon.bad { background: #fdece9; color: var(--danger); }
+.op-side { display: flex; flex-direction: column; align-items: stretch; gap: .4rem; width: 118px; flex: none; }
+.op-fit { text-align: center; border-radius: 10px; padding: .35rem; color: #fff; }
+.op-fit b { display: block; font-size: 1.25rem; line-height: 1; } .op-fit span { font-size: .66rem; opacity: .92; }
+.op-fit.good { background: var(--ok); } .op-fit.ok { background: #b35900; } .op-fit.low { background: #97a0ad; }
+.op-side .btn.sm { width: 100%; justify-content: center; }
+.op-side .btn.ghost { background: transparent; border: 1px solid var(--border-soft); color: var(--muted); font-size: .72rem; }
+.op-side .btn.ghost:hover { border-color: var(--danger); color: var(--danger); }
+.op-badge { font-size: .66rem; font-weight: 800; border-radius: 20px; padding: .08rem .45rem; letter-spacing: .01em; }
+.op-badge.new { background: #e7f0ff; color: #0653c9; }
+.op-badge.soon { background: #fff2d9; color: #8a5a00; }
+.op-sources { border: 1px solid var(--border-soft); border-radius: 12px; background: #fbfcfe; margin: 0 0 1rem; }
+.op-sources > summary { cursor: pointer; padding: .7rem 1rem; font-weight: 700; font-size: .88rem; color: var(--link); list-style: none; }
+.op-sources > summary::-webkit-details-marker { display: none; }
+.op-sources > summary::before { content: "▸ "; color: var(--muted); }
+.op-sources[open] > summary::before { content: "▾ "; }
+.op-src-body { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; padding: 0 1rem .4rem; }
+.op-src-col h4 { margin: .2rem 0 .4rem; font-size: .82rem; }
+.op-src-col p { font-size: .78rem; color: var(--muted); margin: 0 0 .4rem; }
+.op-src-col ul { margin: 0; padding-left: 1.1rem; }
+.op-src-col li { font-size: .8rem; margin-bottom: .35rem; line-height: 1.4; }
+.op-src-col code { background: var(--bg); border: 1px solid var(--border-soft); border-radius: 4px; padding: .05rem .3rem; font-size: .74rem; word-break: break-all; }
+.op-src-note { font-size: .77rem; color: var(--muted); font-style: italic; padding: .3rem 1rem 1rem; margin: 0; border-top: 1px solid var(--border-soft); }
+@media (max-width: 820px) { .op-src-body { grid-template-columns: 1fr; } }
+.op-meta { font-size: .8rem; color: var(--muted); margin-top: .35rem; }
+.op-meta .op-c { font-weight: 800; }
+.op-meta .op-c.new { color: #0653c9; }
+.op-meta .op-c.soon { color: #8a5a00; }
+@media (max-width: 640px) { .op-card { flex-wrap: wrap; } .op-side { width: 100%; flex-direction: row; flex-wrap: wrap; } .op-fit { flex: 1; } }

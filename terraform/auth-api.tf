@@ -97,6 +97,17 @@ data "aws_iam_policy_document" "api" {
       "arn:aws:bedrock:*:${local.acct}:inference-profile/us.anthropic.claude-haiku-4-5-20251001-v1:0",
     ]
   }
+  # Openings Radar: read the scanned openings, flag tracked/dismissed, + rescan.
+  statement {
+    sid       = "OpeningsRead"
+    actions   = ["dynamodb:Scan", "dynamodb:UpdateItem"]
+    resources = [aws_dynamodb_table.openings.arn]
+  }
+  statement {
+    sid       = "OpeningsScan"
+    actions   = ["lambda:InvokeFunction"]
+    resources = [aws_lambda_function.openings_scan.arn]
+  }
 }
 
 resource "aws_iam_role_policy" "api" {
@@ -116,9 +127,11 @@ resource "aws_lambda_function" "api" {
   tracing_config { mode = "Active" }
   environment {
     variables = {
-      APPS_TABLE   = aws_dynamodb_table.applications.name
-      EVENTS_TABLE = aws_dynamodb_table.email_events.name
-      DOCS_BUCKET  = aws_s3_bucket.docs.bucket
+      APPS_TABLE       = aws_dynamodb_table.applications.name
+      EVENTS_TABLE     = aws_dynamodb_table.email_events.name
+      DOCS_BUCKET      = aws_s3_bucket.docs.bucket
+      OPENINGS_TABLE   = aws_dynamodb_table.openings.name
+      OPENINGS_SCAN_FN = aws_lambda_function.openings_scan.function_name
     }
   }
   tags = local.tags

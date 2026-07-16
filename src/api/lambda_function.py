@@ -29,6 +29,7 @@ import sponsorship as sp
 s3 = boto3.client("s3", config=Config(signature_version="s3v4"))
 ddb = boto3.client("dynamodb")
 bedrock = boto3.client("bedrock-runtime")
+lambdac = boto3.client("lambda")
 
 BEDROCK_MODEL = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
 
@@ -92,6 +93,8 @@ class NotFound(Exception):
 APPS = os.environ["APPS_TABLE"]
 EVENTS = os.environ["EVENTS_TABLE"]
 BUCKET = os.environ["DOCS_BUCKET"]
+OPENINGS = os.environ.get("OPENINGS_TABLE", "")
+SCAN_FN = os.environ.get("OPENINGS_SCAN_FN", "")
 PRESIGN_TTL = 300
 
 
@@ -127,6 +130,16 @@ def handler(event, _ctx):
         # /sponsorship  (H-1B visa-sponsorship check for a company / JD)
         if parts[:1] == ["sponsorship"] and method == "POST":
             return sponsorship_check(user, body)
+
+        # /openings  (Openings Radar — scanned, ranked job discovery)
+        if parts[:1] == ["openings"]:
+            if len(parts) == 1 and method == "GET":
+                return list_openings(user)
+            if len(parts) == 2 and parts[1] == "scan" and method == "POST":
+                return trigger_scan()
+            if len(parts) == 3 and method == "POST" and parts[2] in ("track", "dismiss"):
+                field = "tracked" if parts[2] == "track" else "dismissed"
+                return mark_opening(parts[1], field, body)
 
         if parts[:1] == ["applications"]:
             if len(parts) == 1:
@@ -384,6 +397,80 @@ def ask_ai(user, body):
         return _r(502, {"error": "couldn't answer that, try again"})
     ids = [i for i in (out.get("appIds") or []) if isinstance(i, str)][:12]
     return _r(200, {"answer": str(out.get("answer") or "")[:2000], "appIds": ids})
+
+
+def _norm(s):
+    return re.sub(r"[^a-z0-9]+", " ", (s or "").lower()).strip()
+
+
+def list_openings(user):
+    """Live openings, strongest fit first. Merged/persistent across scans — we hide
+    only what shouldn't show: ones the user tracked or dismissed, ones past their
+    freshness window (expireAt), and ones already in the tracker (same company+title)."""
+    now = int(time.time())
+    # Already-logged applications -> hide the matching openings.
+    applied = set()
+    try:
+        for a in _user_apps(user):
+            applied.add((_norm(a.get("company")), _norm(a.get("title"))))
+    except Exception as e:  # noqa: BLE001 — hiding is best-effort, never block the list
+        print(f"list_openings apps lookup failed: {type(e).__name__}: {e}")
+    items, kwargs = [], {"TableName": OPENINGS}
+    while True:
+        r = ddb.scan(**kwargs)
+        for it in r.get("Items", []):
+            if it.get("tracked", {}).get("BOOL") or it.get("dismissed", {}).get("BOOL"):
+                continue
+            exp = int(it.get("expireAt", {}).get("N") or 0)
+            if exp and exp <= now:               # aged out (TTL may not have swept yet)
+                continue
+            o = json.loads(it["body"]["S"])
+            if (_norm(o.get("company")), _norm(o.get("title"))) in applied:
+                continue
+            o["id"] = it["openingId"]["S"]
+            o["firstSeenAt"] = int(it.get("firstSeenAt", {}).get("N") or 0)
+            o["lastSeenAt"] = int((it.get("lastSeenAt") or it.get("scannedAt") or {}).get("N") or 0)
+            o["expireAt"] = exp
+            items.append(o)
+        if "LastEvaluatedKey" not in r or len(items) > 400:
+            break
+        kwargs["ExclusiveStartKey"] = r["LastEvaluatedKey"]
+    items.sort(key=lambda o: o.get("fit", 0), reverse=True)
+    last_scan = max((o["lastSeenAt"] for o in items), default=0)
+    return _r(200, {"openings": items[:120], "lastScan": last_scan})
+
+
+def mark_opening(opening_id, field, extra=None):
+    """Flag an opening tracked/dismissed so it drops out of the list and future scans
+    keep it hidden. Also shorten its TTL so it cleans itself up soon."""
+    if field not in ("tracked", "dismissed"):
+        return _r(400, {"error": "bad field"})
+    expr = "SET #f = :t, expireAt = :e"
+    names = {"#f": field}
+    vals = {":t": {"BOOL": True}, ":e": {"N": str(int(time.time()) + 2 * 86400)}}
+    if extra and extra.get("appId"):
+        expr += ", trackedAppId = :a"
+        vals[":a"] = {"S": str(extra["appId"])}
+    try:
+        ddb.update_item(TableName=OPENINGS, Key={"openingId": {"S": opening_id}},
+                        UpdateExpression=expr, ExpressionAttributeNames=names,
+                        ExpressionAttributeValues=vals)
+    except Exception as e:  # noqa: BLE001
+        print(f"mark_opening failed: {type(e).__name__}: {e}")
+        return _r(502, {"error": "couldn't update the opening"})
+    return _r(200, {"ok": True})
+
+
+def trigger_scan():
+    """Kick the scanner Lambda asynchronously (the daily EventBridge run also fills it)."""
+    if not SCAN_FN:
+        return _r(400, {"error": "scanner not configured"})
+    try:
+        lambdac.invoke(FunctionName=SCAN_FN, InvocationType="Event")
+    except Exception as e:  # noqa: BLE001
+        print(f"scan invoke failed: {type(e).__name__}: {e}")
+        return _r(502, {"error": "couldn't start a scan, try again"})
+    return _r(202, {"started": True})
 
 
 def sponsorship_check(user, body):
