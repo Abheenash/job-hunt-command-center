@@ -46,12 +46,17 @@ JD_SYSTEM = (
 )
 
 MATCH_SYSTEM = (
-    "You are a technical recruiter scoring a candidate's résumé against a job description "
-    "using a fixed rubric. Judge strictly from the two texts. Score each of these EXACT "
-    "dimensions 0-100: 'Required skills' (JD must-haves the résumé evidences), 'Preferred "
-    "skills' (nice-to-haves), 'Experience & seniority' (years/level/scope fit), 'Domain "
-    "relevance' (role/industry fit), 'ATS keywords' (share of the JD's key hard terms "
-    "present in the résumé). Also list the JD's important hard keywords present vs absent. "
+    "You are an applicant-tracking system (ATS) and a strict technical recruiter scoring one "
+    "candidate's résumé against one job description. Parse the JD the way an ATS does: extract "
+    "its hard requirements (skills, tools, certifications, years, level) and check the résumé "
+    "for each — counting exact terms AND common synonyms/acronyms (K8s=Kubernetes, IaC=Terraform, "
+    "CI/CD=GitHub Actions, IAC, GHA). Judge ONLY from the two texts; never credit a skill that "
+    "isn't written. Be strict and honest — missing must-haves and a seniority mismatch must pull "
+    "the score down; do not inflate. Score each of these EXACT dimensions 0-100: 'Required skills' "
+    "(JD must-haves the résumé evidences), 'Preferred skills' (nice-to-haves), 'Experience & "
+    "seniority' (years/level/scope fit), 'Domain relevance' (role/industry fit), 'ATS keywords' "
+    "(share of the JD's key hard terms present in the résumé). List the JD's important hard "
+    "keywords present vs absent (dedupe; normalize case). "
     "Reply with ONLY a compact JSON object, no prose, no code fences: "
     '{"scoreBreakdown":[{"dimension":str,"score":int,"note":str}],'
     '"matched":[up to 8 requirements the résumé clearly satisfies],'
@@ -95,6 +100,8 @@ EVENTS = os.environ["EVENTS_TABLE"]
 BUCKET = os.environ["DOCS_BUCKET"]
 OPENINGS = os.environ.get("OPENINGS_TABLE", "")
 SCAN_FN = os.environ.get("OPENINGS_SCAN_FN", "")
+OPENINGS_MIN_FIT = 50   # quality bar for what the radar shows (mirrors the scanner)
+OPENINGS_MAX = 60       # show the best ~60, not a giant wall
 PRESIGN_TTL = 300
 
 
@@ -425,6 +432,10 @@ def list_openings(user):
             if exp and exp <= now:               # aged out (TTL may not have swept yet)
                 continue
             o = json.loads(it["body"]["S"])
+            if not o.get("scored"):                  # hide legacy heuristic-scored rows; they age out
+                continue
+            if o.get("fit", 0) < OPENINGS_MIN_FIT:   # quality bar (also enforced at scan time)
+                continue
             if (_norm(o.get("company")), _norm(o.get("title"))) in applied:
                 continue
             o["id"] = it["openingId"]["S"]
@@ -439,7 +450,7 @@ def list_openings(user):
     # scanner's ordering so TX surfaces first, then remote, then the rest of the US.
     items.sort(key=lambda o: (o.get("geo", 2), -o.get("fit", 0)))
     last_scan = max((o["lastSeenAt"] for o in items), default=0)
-    return _r(200, {"openings": items[:120], "lastScan": last_scan})
+    return _r(200, {"openings": items[:OPENINGS_MAX], "lastScan": last_scan})
 
 
 def mark_opening(opening_id, field, extra=None):

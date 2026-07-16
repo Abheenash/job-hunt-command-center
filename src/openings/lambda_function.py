@@ -27,12 +27,17 @@ UA = {"User-Agent": "Mozilla/5.0 (jobhunt openings radar)"}
 # get more runway, low-value ones (blocked / low fit) go sooner. Removal itself is
 # DynamoDB TTL on expireAt, and the API also hides anything already past expiry.
 FRESH_DAYS = 7          # normal openings live 7 days after they were last seen
-STALE_DAYS = 3          # low-value (blocked / low fit) age out faster
+STALE_DAYS = 3          # blocked / sponsorship-risk openings age out faster
 STRONG_DAYS = 14        # strong, sponsor-friendly matches get more runway
 STRONG_FIT = 75         # fit at/above this = "strong"
-STORE_MIN_FIT = 40      # below this = low value -> the faster STALE_DAYS clock
-MAX_STORE = 150         # safety cap on upserts per scan
-MAX_BEDROCK = 30        # cap Haiku calls per scan (cost control)
+KEEP_MIN_FIT = 50       # QUALITY BAR — only keep openings scoring >= this match %
+MAX_STORE = 60          # keep the best ~60 (quality over volume)
+MAX_BEDROCK = 120       # rubric-score a deep pool so every STORED opening is fully
+                        # scored (many drop below the bar, so score well past MAX_STORE)
+
+# Industry-style match rubric — the SAME weighting the résumé/JD ATS matcher uses,
+# so an opening's "fit" is a real weighted match score, not a keyword heuristic.
+FIT_WEIGHTS = {"required": 40, "preferred": 15, "experience": 20, "domain": 15, "ats": 10}
 
 # --- target companies by ATS (sponsor-friendly; known no-sponsors excluded) ---
 # Live-fetchable via each ATS's public JSON board. Curated to sponsor-friendly
@@ -289,19 +294,31 @@ def _base_score(o):
 
 def _bedrock_fit(o):
     prompt = (
-        f"CANDIDATE:\n{PROFILE}\n\nJOB:\nCompany: {o['company']}\nTitle: {o['title']}\n"
-        f"Location: {o['location']}\nDescription (excerpt):\n{(o.get('jd') or '')[:2500]}\n\n"
-        "Score how well this job fits the candidate for their NEXT role. Reply with ONLY a "
-        "compact JSON object, no prose: {\"fit\": int 0-100, \"reason\": str (one short "
-        "sentence), \"sponsorRisk\": \"low\"|\"med\"|\"high\" (high if the JD hints at "
-        "no-sponsorship / citizenship / clearance)}")
-    payload = {"anthropic_version": "bedrock-2023-05-31", "max_tokens": 200, "temperature": 0.2,
+        f"CANDIDATE PROFILE:\n{PROFILE}\n\n"
+        f"JOB POSTING:\nCompany: {o['company']}\nTitle: {o['title']}\n"
+        f"Location: {o['location']}\nDescription:\n{(o.get('jd') or '')[:3000]}\n\n"
+        "Act as an ATS + technical recruiter screening this candidate for THIS job. Score "
+        "strictly and honestly from the two texts — do NOT inflate; an entry-level candidate "
+        "applying to a senior/mismatched role should score low. Rate each dimension 0-100:\n"
+        "- required: how many of the JD's MUST-HAVE hard skills/tools the profile evidences\n"
+        "- preferred: coverage of the JD's nice-to-have skills\n"
+        "- experience: years / level / scope fit (candidate is early-career: ~2 yrs + an M.S.)\n"
+        "- domain: role/industry relevance (cloud / DevOps / SRE / support / systems)\n"
+        "- ats: share of the JD's key hard keywords (exact terms + common synonyms) in the profile\n"
+        "Reply with ONLY compact JSON, no prose: {\"required\":int,\"preferred\":int,"
+        "\"experience\":int,\"domain\":int,\"ats\":int,\"reason\":str (one short sentence naming "
+        "the single biggest strength or gap),\"sponsorRisk\":\"low\"|\"med\"|\"high\" (high if the "
+        "JD hints at no-sponsorship / citizenship / clearance)}")
+    payload = {"anthropic_version": "bedrock-2023-05-31", "max_tokens": 260, "temperature": 0.2,
                "messages": [{"role": "user", "content": [{"type": "text", "text": prompt}]}]}
     resp = bedrock.invoke_model(modelId=BEDROCK_MODEL, body=json.dumps(payload))
     txt = json.loads(resp["body"].read())["content"][0]["text"]
     a, b = txt.find("{"), txt.rfind("}")
     r = json.loads(txt[a:b + 1])
-    return {"fit": max(0, min(100, int(r.get("fit", 0)))), "reason": str(r.get("reason", ""))[:200],
+    # Weighted match score (computed here from the rubric, not a single model guess).
+    total = sum(max(0, min(100, int(r.get(k, 0) or 0))) * w for k, w in FIT_WEIGHTS.items())
+    fit = round(total / sum(FIT_WEIGHTS.values()))
+    return {"fit": max(0, min(100, fit)), "reason": str(r.get("reason", ""))[:200],
             "sponsorRisk": r.get("sponsorRisk", "med")}
 
 
@@ -309,36 +326,36 @@ def handler(event, _ctx):
     openings, errors = collect()
     for o in openings:
         o["blocked"], o["sponsorNote"] = _sponsor(o.get("jd") or "")
-        o["fit"] = _base_score(o)
+        o["fit"] = _base_score(o)   # cheap screen — picks who gets a real rubric score
         o["geo"] = _geo_tier(o)
-    # Order by geo tier (TX > remote > rest-of-US), fit as tiebreaker — so TX and the
-    # best-fit roles get the bounded Bedrock refinement, and the stored order matches.
-    openings.sort(key=lambda o: (o["geo"], -o["fit"]))
-
-    # Bedrock-refine the top candidates (bounded); keep the deterministic tail.
-    for o in openings[:MAX_BEDROCK]:
+    # Rubric-score the strongest candidates by the cheap screen (best first, NOT geo —
+    # geo must not starve the scoring budget). Only these get an accurate weighted match
+    # score + reason, and only these are eligible to be stored, so nothing shown is a
+    # keyword guess.
+    openings.sort(key=lambda o: o["fit"], reverse=True)
+    scored = openings[:MAX_BEDROCK]
+    for o in scored:
         try:
             r = _bedrock_fit(o)
-            o["fit"] = r["fit"] if not o["blocked"] else min(r["fit"], 25)
+            o["fit"] = min(r["fit"], 25) if o["blocked"] else r["fit"]
             o["reason"] = r["reason"]
             o["sponsorRisk"] = "high" if o["blocked"] else r["sponsorRisk"]
-        except Exception as e:  # noqa: BLE001 — degrade to deterministic score
-            o.setdefault("reason", "")
-            o.setdefault("sponsorRisk", "high" if o["blocked"] else "med")
+        except Exception as e:  # noqa: BLE001 — unscored -> below the bar, won't store; retried next scan
+            o["fit"], o["reason"] = 0, ""
+            o["sponsorRisk"] = "high" if o["blocked"] else "med"
             errors.append(f"bedrock:{type(e).__name__}")
-    for o in openings[MAX_BEDROCK:]:
-        o.setdefault("reason", "")
-        o["sponsorRisk"] = "high" if o["blocked"] else "med"
 
-    openings.sort(key=lambda o: (o["geo"], -o["fit"]))
-    keep = openings[:MAX_STORE]
+    # Quality bar + geo priority (TX -> remote -> rest-of-US), best match first, capped.
+    keep = [o for o in scored if o["fit"] >= KEEP_MIN_FIT]
+    keep.sort(key=lambda o: (o["geo"], -o["fit"]))
+    keep = keep[:MAX_STORE]
 
     now = int(time.time())
     stored = 0
     for o in keep:
         oid = hashlib.sha1(o["url"].encode()).hexdigest()[:16]
         fit = o["fit"]
-        if o.get("blocked") or fit < STORE_MIN_FIT:
+        if o.get("blocked"):
             ttl_days = STALE_DAYS
         elif fit >= STRONG_FIT and o.get("sponsorRisk") == "low":
             ttl_days = STRONG_DAYS
@@ -348,6 +365,7 @@ def handler(event, _ctx):
         rec = {k: o.get(k) for k in ("company", "title", "location", "url", "source",
                                      "fit", "geo", "reason", "blocked", "sponsorNote", "sponsorRisk")}
         rec["jd"] = (o.get("jd") or "")[:6000]
+        rec["scored"] = True  # marks a real weighted-rubric score (vs legacy heuristic rows)
         # Upsert-as-merge: refresh the scan-derived fields and push the freshness clock
         # forward, but NEVER clobber the user's own state (tracked / dismissed) or the
         # original firstSeenAt. This is what turns a rescan into "add the new, keep the

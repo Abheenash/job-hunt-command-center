@@ -80,7 +80,7 @@ resource "aws_lambda_function" "openings_scan" {
 
 resource "aws_cloudwatch_event_rule" "openings_scan" {
   name                = "${local.name}-openings-scan"
-  schedule_expression = "cron(0 13 * * ? *)" # 13:00 UTC daily
+  schedule_expression = "cron(0 0/6 * * ? *)" # every 6 hours (00/06/12/18 UTC)
   tags                = local.tags
 }
 

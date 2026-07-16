@@ -998,7 +998,7 @@ function renderOpenings() {
   meta.push(`${OPENINGS.length} live`);
   if (nNew) meta.push(`<b class="op-c new">${nNew} new</b>`);
   if (nSoon) meta.push(`<b class="op-c soon">${nSoon} leaving soon</b>`);
-  el.innerHTML = `<div class="page-head"><div><h1>🔎 Openings</h1><p class="sub">Entry-level cloud · DevOps · SRE · support roles scanned across sponsor-friendly companies, ranked <b>Texas first, then remote, then the rest of the US</b>, by fit within each. New finds are merged in and kept; ones you don't act on age out after about a week (weaker matches sooner). Sponsorship risk is flagged from the JD — always verify the live posting.</p>
+  el.innerHTML = `<div class="page-head"><div><h1>🔎 Openings</h1><p class="sub">Entry-level cloud · DevOps · SRE · support roles scanned across sponsor-friendly companies, scored on a weighted match rubric and ranked <b>Texas first, then remote, then the rest of the US</b>, by match % within each. Only roles that clear a <b>50% match bar are kept (best ~60)</b>; new finds are merged in, and ones you don't act on age out after about a week. Sponsorship risk is flagged from the JD — always verify the live posting.</p>
       <p class="op-meta">${meta.join(" · ")}</p></div>
       <div class="head-actions"><button id="op-rescan" class="btn">↻ Rescan</button></div></div>
     ${opSourcesPanel()}
