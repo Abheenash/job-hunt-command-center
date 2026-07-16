@@ -818,6 +818,11 @@ function opRisk(o) {
   return `<span class="op-spon med">~ verify sponsorship</span>`;
 }
 function opFitClass(f) { return f >= 75 ? "good" : f >= 55 ? "ok" : "low"; }
+function opGeoPill(o) {
+  if (o.geo === 0) return `<span class="op-badge tx">📍 Texas</span>`;
+  if (o.geo === 1) return `<span class="op-badge rem">🏠 Remote</span>`;
+  return "";
+}
 function opBadges(o) {
   const now = Math.floor(Date.now() / 1000);
   let h = "";
@@ -830,7 +835,7 @@ function opCard(o, i) {
   return `<article class="op-card">
     <div class="op-rank">${i + 1}</div>
     <div class="op-main">
-      <div class="op-top"><b>${esc(o.company || "—")}</b><span class="op-src">${esc(o.source || "")}</span>${opBadges(o)}</div>
+      <div class="op-top"><b>${esc(o.company || "—")}</b><span class="op-src">${esc(o.source || "")}</span>${opGeoPill(o)}${opBadges(o)}</div>
       <div class="op-title">${esc(o.title || "")}</div>
       <div class="op-loc">${esc(o.location || "")}</div>
       ${o.reason ? `<p class="op-reason">${esc(o.reason)}</p>` : ""}
@@ -890,7 +895,7 @@ function renderOpenings() {
   meta.push(`${OPENINGS.length} live`);
   if (nNew) meta.push(`<b class="op-c new">${nNew} new</b>`);
   if (nSoon) meta.push(`<b class="op-c soon">${nSoon} leaving soon</b>`);
-  el.innerHTML = `<div class="page-head"><div><h1>🔎 Openings</h1><p class="sub">Entry-level cloud · DevOps · SRE · support roles scanned across sponsor-friendly companies, ranked by fit for you. New finds are merged in and kept; ones you don't act on age out after about a week (weaker matches sooner). Sponsorship risk is flagged from the JD — always verify the live posting.</p>
+  el.innerHTML = `<div class="page-head"><div><h1>🔎 Openings</h1><p class="sub">Entry-level cloud · DevOps · SRE · support roles scanned across sponsor-friendly companies, ranked <b>Texas first, then remote, then the rest of the US</b>, by fit within each. New finds are merged in and kept; ones you don't act on age out after about a week (weaker matches sooner). Sponsorship risk is flagged from the JD — always verify the live posting.</p>
       <p class="op-meta">${meta.join(" · ")}</p></div>
       <div class="head-actions"><button id="op-rescan" class="btn">↻ Rescan</button></div></div>
     ${opSourcesPanel()}

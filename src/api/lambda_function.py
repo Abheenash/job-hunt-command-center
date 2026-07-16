@@ -435,7 +435,9 @@ def list_openings(user):
         if "LastEvaluatedKey" not in r or len(items) > 400:
             break
         kwargs["ExclusiveStartKey"] = r["LastEvaluatedKey"]
-    items.sort(key=lambda o: o.get("fit", 0), reverse=True)
+    # Geo tier first (0=TX, 1=remote, 2=rest-of-US, 3=unknown), then fit — matches the
+    # scanner's ordering so TX surfaces first, then remote, then the rest of the US.
+    items.sort(key=lambda o: (o.get("geo", 2), -o.get("fit", 0)))
     last_scan = max((o["lastSeenAt"] for o in items), default=0)
     return _r(200, {"openings": items[:120], "lastScan": last_scan})
 

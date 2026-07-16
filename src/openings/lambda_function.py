@@ -73,6 +73,12 @@ US_POS_RE = re.compile(r"\b(united states|u\.?s\.?a?\.?|americas|north america)\
 US_STATES = ("AL AK AZ AR CA CO CT DE FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT "
              "NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY DC").split()
 US_STATE_RE = re.compile(r",\s*(" + "|".join(US_STATES) + r")\b")  # "Austin, TX" (case-sensitive code)
+# Candidate is Houston, TX and will relocate anywhere in the US. Ranking priority is
+# Texas first, then remote-US, then the rest of the US. _geo_tier drives the ordering
+# (lower = higher priority); fit is the tiebreaker within each tier.
+TX_RE = re.compile(r"(,\s*tx\b)|\btexas\b|\b(houston|austin|dallas|san antonio|fort worth|"
+                   r"el paso|plano|irving|frisco|mckinney|round rock|the woodlands|sugar land|"
+                   r"richardson|westlake|las colinas)\b", re.I)
 
 SKILL_KW = ["aws", "lambda", "s3", "dynamodb", "ec2", "ecs", "eks", "kubernetes", "terraform",
             "ci/cd", "cicd", "github actions", "docker", "cloudwatch", "devops", "sre",
@@ -249,6 +255,19 @@ def _sponsor(jd):
     return False, ""
 
 
+def _geo_tier(o):
+    """0 = Texas, 1 = remote-US, 2 = elsewhere in the US, 3 = unknown. Texas wins even
+    if the role is also remote (candidate is TX-based)."""
+    loc = o.get("location") or ""
+    if TX_RE.search(loc):
+        return 0
+    if "remote" in loc.lower():
+        return 1
+    if US_POS_RE.search(loc) or US_STATE_RE.search(loc):
+        return 2
+    return 3
+
+
 def _base_score(o):
     title, jd = o["title"], (o.get("jd") or "").lower()
     s = 40 if ROLE_RE.search(title) else 0
@@ -291,7 +310,10 @@ def handler(event, _ctx):
     for o in openings:
         o["blocked"], o["sponsorNote"] = _sponsor(o.get("jd") or "")
         o["fit"] = _base_score(o)
-    openings.sort(key=lambda o: o["fit"], reverse=True)
+        o["geo"] = _geo_tier(o)
+    # Order by geo tier (TX > remote > rest-of-US), fit as tiebreaker — so TX and the
+    # best-fit roles get the bounded Bedrock refinement, and the stored order matches.
+    openings.sort(key=lambda o: (o["geo"], -o["fit"]))
 
     # Bedrock-refine the top candidates (bounded); keep the deterministic tail.
     for o in openings[:MAX_BEDROCK]:
@@ -308,7 +330,7 @@ def handler(event, _ctx):
         o.setdefault("reason", "")
         o["sponsorRisk"] = "high" if o["blocked"] else "med"
 
-    openings.sort(key=lambda o: o["fit"], reverse=True)
+    openings.sort(key=lambda o: (o["geo"], -o["fit"]))
     keep = openings[:MAX_STORE]
 
     now = int(time.time())
@@ -324,7 +346,7 @@ def handler(event, _ctx):
             ttl_days = FRESH_DAYS
         expire = now + ttl_days * 86400
         rec = {k: o.get(k) for k in ("company", "title", "location", "url", "source",
-                                     "fit", "reason", "blocked", "sponsorNote", "sponsorRisk")}
+                                     "fit", "geo", "reason", "blocked", "sponsorNote", "sponsorRisk")}
         rec["jd"] = (o.get("jd") or "")[:6000]
         # Upsert-as-merge: refresh the scan-derived fields and push the freshness clock
         # forward, but NEVER clobber the user's own state (tracked / dismissed) or the
