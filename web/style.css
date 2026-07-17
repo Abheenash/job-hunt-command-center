@@ -475,6 +475,12 @@ input.op-f { flex: 1 1 220px; min-width: 180px; }
 .op-count { font-size: .8rem; color: var(--muted); font-weight: 600; margin-left: auto; white-space: nowrap; }
 .op-filters .btn.sm { height: 36px; box-sizing: border-box; }
 .linkish { background: none; border: none; color: var(--link); cursor: pointer; text-decoration: underline; font: inherit; padding: 0; }
+.op-chips { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .1rem; }
+.op-chip { border: 1px solid var(--border); background: #fff; color: var(--text); border-radius: 999px;
+  padding: .3rem .7rem; font-size: .78rem; cursor: pointer; display: inline-flex; align-items: center; gap: .3rem; }
+.op-chip:hover { border-color: var(--link); }
+.op-chip.on { background: var(--link); color: #fff; border-color: var(--link); }
+.op-chip b { font-weight: 700; opacity: .85; }
 @media (max-width: 640px) { .op-filters { gap: .5rem; } input.op-f { flex-basis: 100%; } .op-count { margin-left: 0; } }
 .op-meta .op-c { font-weight: 800; }
 .op-meta .op-c.new { color: #0653c9; }

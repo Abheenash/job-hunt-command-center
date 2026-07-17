@@ -895,7 +895,8 @@ function opSourcesPanel() {
   </details>`;
 }
 // ---- Openings filters + sorting (all client-side over the loaded list) ------
-let opFilters = { q: "", state: "", sponsor: "friendly", platform: "", minFit: 0, sort: "geo" };
+let opFilters = { q: "", state: "", sponsor: "friendly", platform: "", minFit: 0, sort: "geo",
+  onlyNew: false, onlySoon: false, onlyAI: false, onlyCap: false, hideStaffing: false };
 const STATE_NAMES = { alabama: "AL", alaska: "AK", arizona: "AZ", arkansas: "AR", california: "CA",
   colorado: "CO", connecticut: "CT", delaware: "DE", florida: "FL", georgia: "GA", hawaii: "HI",
   idaho: "ID", illinois: "IL", indiana: "IN", iowa: "IA", kansas: "KS", kentucky: "KY",
@@ -937,6 +938,12 @@ function opMatchesFilters(o) {
   }
   if (f.platform && opPlatKey(o) !== f.platform) return false;
   if (f.minFit && (o.fit || 0) < f.minFit) return false;
+  const now = Math.floor(Date.now() / 1000);
+  if (f.onlyNew && !(o.firstSeenAt && now - o.firstSeenAt < NEW_WINDOW)) return false;
+  if (f.onlySoon && !(o.expireAt && o.expireAt - now < SOON_WINDOW)) return false;
+  if (f.onlyAI && o.scoredBy !== "ai") return false;
+  if (f.onlyCap && !o.capExempt) return false;
+  if (f.hideStaffing && o.staffing) return false;
   return true;
 }
 function opSortCmp(a, b) {
@@ -967,7 +974,21 @@ function opFilterBar() {
     <label class="op-f-sort">Sort <select id="opf-sort" class="op-f">${opt([["geo", "Texas first"], ["fit", "Best match %"], ["new", "Newest"], ["soon", "Leaving soon"], ["company", "Company A–Z"]], f.sort)}</select></label>
     <span id="op-count-live" class="op-count"></span>
     <button id="opf-clear" class="btn sm ghost">Clear</button>
+    <div class="op-chips">${opChipBar()}</div>
   </div>`;
+}
+function opChipBar() {
+  const f = opFilters, now = Math.floor(Date.now() / 1000);
+  const n = {
+    onlyNew: OPENINGS.filter((o) => o.firstSeenAt && now - o.firstSeenAt < NEW_WINDOW).length,
+    onlySoon: OPENINGS.filter((o) => o.expireAt && o.expireAt - now < SOON_WINDOW).length,
+    onlyAI: OPENINGS.filter((o) => o.scoredBy === "ai").length,
+    onlyCap: OPENINGS.filter((o) => o.capExempt).length,
+    hideStaffing: OPENINGS.filter((o) => o.staffing).length,
+  };
+  const chip = (key, label) => `<button class="op-chip${f[key] ? " on" : ""}" data-chip="${key}">${label}${n[key] ? ` <b>${n[key]}</b>` : ""}</button>`;
+  return chip("onlyNew", "🆕 New") + chip("onlySoon", "⏳ Leaving soon") + chip("onlyAI", "🤖 AI-verified")
+    + chip("onlyCap", "🎓 Cap-exempt") + chip("hideStaffing", "🚫 Hide staffing");
 }
 function wireOpCardButtons() {
   $$("#openings-view .op-track").forEach((b) => (b.onclick = () => {
@@ -976,7 +997,7 @@ function wireOpCardButtons() {
   }));
   $$("#openings-view .op-dismiss").forEach((b) => (b.onclick = () => dismissOpening(b.dataset.id)));
 }
-function resetOpFilters() { opFilters = { q: "", state: "", sponsor: "", platform: "", minFit: 0, sort: "geo" }; renderOpenings(); }
+function resetOpFilters() { opFilters = { q: "", state: "", sponsor: "", platform: "", minFit: 0, sort: "geo", onlyNew: false, onlySoon: false, onlyAI: false, onlyCap: false, hideStaffing: false }; renderOpenings(); }
 function renderOpList() {
   const box = $("#op-results"); if (!box) return;
   const rows = applyOpFilters();
@@ -1011,7 +1032,7 @@ function renderOpenings() {
   meta.push(`${OPENINGS.length} live`);
   if (nNew) meta.push(`<b class="op-c new">${nNew} new</b>`);
   if (nSoon) meta.push(`<b class="op-c soon">${nSoon} leaving soon</b>`);
-  el.innerHTML = `<div class="page-head"><div><h1>🔎 Openings</h1><p class="sub">Entry-level cloud · DevOps · SRE · support roles scanned across sponsor-friendly companies, pulled daily from ATS boards (Greenhouse/Ashby/Amazon/Workday/Lever), the GitHub 🛂 sponsorship feeds, and the Adzuna aggregator — then <b>every confirmed no-sponsorship role is dropped</b> (only sponsor-enabled or likely-to-sponsor kept), scored by stack overlap, and ranked <b>Texas → remote → rest of US</b> by match %. Only ≥50% matches kept (no count cap). Filter by source, state, sponsorship. Run a deeper AI match before applying.</p>
+  el.innerHTML = `<div class="page-head"><div><h1>🔎 Openings</h1><p class="sub">Entry-level cloud · DevOps · SRE · support roles scanned across sponsor-friendly companies, pulled daily from ATS boards (Greenhouse/Ashby/Amazon/Workday/Lever), the GitHub 🛂 sponsorship feeds, and the Adzuna aggregator — then <b>every confirmed no-sponsorship role is dropped</b> (only sponsor-enabled or likely-to-sponsor kept), scored by stack overlap, and ranked <b>Texas → remote → rest of US</b> by match %. Only ≥50% matches kept. The top roles are <b>🤖 AI-verified</b> (Claude read the full JD — trustworthy %); the rest are keyword estimates. Filter by source · state · sponsorship · match %, or the quick chips (🆕 New · ⏳ Leaving soon · 🤖 AI-verified · 🎓 Cap-exempt · 🚫 Hide staffing).</p>
       <p class="op-meta">${meta.join(" · ")}</p></div>
       <div class="head-actions"><button id="op-rescan" class="btn">↻ Rescan</button></div></div>
     ${opSourcesPanel()}
@@ -1027,6 +1048,10 @@ function renderOpenings() {
   const ft = $("#opf-fit"); if (ft) ft.onchange = () => { opFilters.minFit = +ft.value; renderOpList(); };
   const so = $("#opf-sort"); if (so) so.onchange = () => { opFilters.sort = so.value; renderOpList(); };
   const cl = $("#opf-clear"); if (cl) cl.onclick = resetOpFilters;
+  $$("#openings-view .op-chip").forEach((c) => (c.onclick = () => {
+    const k = c.dataset.chip; opFilters[k] = !opFilters[k];
+    c.classList.toggle("on", opFilters[k]); renderOpList();
+  }));
   if (OPENINGS.length) renderOpList();
 }
 async function dismissOpening(id) {
