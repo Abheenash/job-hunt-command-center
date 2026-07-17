@@ -851,7 +851,7 @@ function opCard(o, i) {
       <div class="op-tags">${opRisk(o)}</div>
     </div>
     <div class="op-side">
-      <div class="op-fit ${opFitClass(fit)}"><b>${fit}%</b><span>fit</span></div>
+      <div class="op-fit ${opFitClass(fit)}" title="${o.scoredBy === "ai" ? "AI read the full JD — trustworthy" : "Keyword estimate — verify"}"><b>${fit}%</b><span>${o.scoredBy === "ai" ? "🤖 fit" : "fit"}</span></div>
       <a class="btn sm" href="${esc(o.url || "#")}" target="_blank" rel="noopener">Apply ↗</a>
       <button class="btn sm primary op-track" data-id="${esc(o.id || "")}">+ Track</button>
       <button class="btn sm ghost op-dismiss" data-id="${esc(o.id || "")}" title="Not interested — hide this">✕ Not interested</button>

@@ -18,6 +18,8 @@ import urllib.request
 import boto3
 
 ddb = boto3.client("dynamodb")
+bedrock = boto3.client("bedrock-runtime")
+BEDROCK_MODEL = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
 TABLE = os.environ["OPENINGS_TABLE"]
 APPS_TABLE = os.environ.get("APPS_TABLE", "")  # to skip roles already in the tracker
 UA = {"User-Agent": "Mozilla/5.0 (jobhunt openings radar)"}
@@ -31,9 +33,34 @@ STRONG_DAYS = 14        # strong, sponsor-friendly matches get more runway
 STRONG_FIT = 75         # fit at/above this = "strong"
 KEEP_MIN_FIT = 50       # QUALITY BAR — only keep openings scoring >= this match %
 MAX_STORE = 500         # effectively uncapped — filters + sort handle the volume
-# Scoring is deterministic (JD-content overlap vs the candidate's stack) — NO Bedrock,
-# so the daily scan costs ~$0 in AI. Deep, AI-quality matching happens on demand via
-# Claude (Max plan) when the candidate sits down to apply.
+# TWO-STAGE scoring: (1) free deterministic pre-filter (_content_score) does all the
+# dedup/suppression and narrows ~10k postings to the best few hundred; (2) Bedrock reads
+# each real JD and returns a TRUSTWORTHY match % + sponsorship read (the number that
+# actually agrees with pasting the JD into Claude). Only the top MAX_AI real-JD candidates
+# are AI-scored (cost control ~$8-11/mo); title-only feed rows keep the deterministic score.
+MAX_AI = 120            # Bedrock calls per scan (cost cap)
+AI_PREBAR = 42          # only AI-score candidates whose deterministic pre-score clears this
+# Weighted early-career rubric — the Lambda computes the % from the model's dimension scores.
+FIT_WEIGHTS = {"required": 40, "preferred": 15, "experience": 20, "domain": 15, "ats": 10}
+
+# The candidate profile the JD is matched against (kept in sync with the résumé corpus).
+PROFILE = (
+    "CANDIDATE: entry-level Cloud / DevOps engineer. M.S. Computer & Systems Engineering "
+    "(Dec 2025); AWS Solutions Architect Associate + Cloud Practitioner. ~2 years as a DevOps "
+    "Engineer in AWS cloud operations at HCLTech (ECS Fargate/ALB/RDS/Route53, weekly on-call "
+    "w/ CloudWatch+PagerDuty & RCAs, GitHub Actions CI/CD, Terraform + drift detection, golden-"
+    "signal alarms, Boto3/Lambda/EventBridge/SSM automation, Config/Inspector/GuardDuty/Security "
+    "Hub remediation). Portfolio: serverless zero-knowledge file-share, Amazon EKS platform "
+    "(K8s/HPA/IRSA), secure container pipeline (ECS/WAF/DevSecOps gates), cloud observability "
+    "(CloudWatch/X-Ray/Synthetics/SLOs), cloud-ops recovery lab (EC2/RDS/incident drills). "
+    "Systems foundation: C++ multithreading, POSIX sockets. Skills: AWS, Terraform, Docker, "
+    "Kubernetes, CI/CD, Linux, Python/Boto3, Bash, SQL, networking, observability/SRE, incident "
+    "response. WORK AUTH: F-1 OPT, needs future H-1B sponsorship. Houston TX; relocates anywhere "
+    "in the US, remote welcome. BEST-FIT: Cloud / Cloud Support / DevOps / SRE / Platform / "
+    "Infrastructure / Systems Engineer, Cloud Operations, Solutions Architect (associate/entry). "
+    "WEAK fit: pure frontend/mobile/product-backend, data-science/ML, data engineering, dedicated "
+    "security engineering, embedded/hardware, and ANY senior/staff/principal or 4+ years-required role."
+)
 
 # Adzuna job-search AGGREGATOR (free key at developer.adzuna.com) — set both env vars to
 # enable; it pulls listings from many sources (incl. reposts of LinkedIn/Indeed roles).
@@ -533,6 +560,39 @@ def _content_score(o):
     return max(0, min(100, s))
 
 
+def _ai_score(o):
+    """Bedrock reads the FULL JD and scores early-career fit honestly (the number that agrees
+    with pasting the JD into Claude). Returns {fit, reason, sponsorRisk}. Raises on API error
+    so the caller can fall back to the deterministic score."""
+    prompt = (
+        f"CANDIDATE PROFILE:\n{PROFILE}\n\n"
+        f"JOB POSTING:\nCompany: {o.get('company','')}\nTitle: {o.get('title','')}\n"
+        f"Location: {o.get('location','')}\nFull description:\n{(o.get('jd') or '')[:3500]}\n\n"
+        "Act as a strict ATS + technical recruiter. READ THE FULL JD — titles lie both ways. Score "
+        "how well THIS early-career candidate fits THIS job. Be harsh about seniority and required "
+        "years: a role needing 4+ years, or a senior/staff/principal/architect role, is a POOR fit "
+        "even with heavy keyword overlap. Rate each 0-100:\n"
+        "- required: JD must-have hard skills the candidate evidences\n"
+        "- preferred: nice-to-have coverage\n"
+        "- experience: years/level/scope fit (candidate is ~2 yrs + M.S., entry/associate only)\n"
+        "- domain: is this genuinely cloud/DevOps/SRE/support/systems (vs frontend/backend/ML/data/security)\n"
+        "- ats: share of the JD's key hard terms present in the profile\n"
+        "Reply ONLY compact JSON: {\"required\":int,\"preferred\":int,\"experience\":int,"
+        "\"domain\":int,\"ats\":int,\"reason\":str (one short sentence, name the biggest strength or "
+        "gap),\"sponsorRisk\":\"low\"|\"med\"|\"high\" (high if the JD needs citizenship/clearance or "
+        "excludes visa sponsorship; low if it welcomes new grads / mentions sponsorship)}")
+    payload = {"anthropic_version": "bedrock-2023-05-31", "max_tokens": 260, "temperature": 0.2,
+               "messages": [{"role": "user", "content": [{"type": "text", "text": prompt}]}]}
+    resp = bedrock.invoke_model(modelId=BEDROCK_MODEL, body=json.dumps(payload))
+    txt = json.loads(resp["body"].read())["content"][0]["text"]
+    a, b = txt.find("{"), txt.rfind("}")
+    r = json.loads(txt[a:b + 1])
+    total = sum(max(0, min(100, int(r.get(k, 0) or 0))) * w for k, w in FIT_WEIGHTS.items())
+    fit = round(total / sum(FIT_WEIGHTS.values()))
+    return {"fit": max(0, min(100, fit)), "reason": str(r.get("reason", ""))[:200],
+            "sponsorRisk": r.get("sponsorRisk", "med")}
+
+
 def _reason(o):
     """A short, honest 'why it matched' — stack terms present in the JD, else the sponsor note."""
     text = ((o.get("title") or "") + " " + (o.get("jd") or "")).lower()
@@ -572,13 +632,33 @@ def handler(event, _ctx):
             dropped["dup"] += 1
             continue
         best[ct] = o
-    # Deterministic scoring: content/title-overlap IS the fit. Aggregator (Adzuna) rows from
-    # unverified companies + staffing/bodyshop firms are down-ranked so they never top the list.
+    # Stage 1 — deterministic pre-score (free). This IS the fallback fit. Aggregator/staffing
+    # rows are down-ranked so they never top the AI queue.
     for o in best.values():
         pen = 15 if (o["source"] == "adzuna" and o["sponsorRisk"] == "med") else 0
         pen += 12 if o.get("staffing") else 0
-        o["fit"] = max(0, o["content"] - pen)
+        o["pre"] = max(0, o["content"] - pen)
+        o["fit"] = o["pre"]
         o["reason"] = _reason(o)
+        o["scoredBy"] = "keyword"
+
+    # Stage 2 — AI: Bedrock reads the FULL JD for the top real-JD candidates and returns a
+    # trustworthy match % (agrees with pasting the JD into Claude). Title-only feed rows have
+    # no JD to read, so they keep the deterministic title score. Bounded by MAX_AI for cost;
+    # on any Bedrock error the deterministic score stands (a blip never empties the tab).
+    ai_pool = [o for o in best.values() if len(o.get("jd") or "") >= 200 and o["pre"] >= AI_PREBAR]
+    ai_pool.sort(key=lambda o: -o["pre"])
+    ai_used = 0
+    for o in ai_pool[:MAX_AI]:
+        try:
+            r = _ai_score(o)
+            o["fit"], o["reason"] = r["fit"], (r["reason"] or o["reason"])
+            o["sponsorRisk"] = "high" if o.get("capExempt") is False and r["sponsorRisk"] == "high" else (
+                "low" if o.get("capExempt") else r["sponsorRisk"])
+            o["scoredBy"] = "ai"
+            ai_used += 1
+        except Exception as e:  # noqa: BLE001 — keep the deterministic score on error
+            errors.append(f"ai:{type(e).__name__}")
 
     # Quality bar (>=50% match) + geo priority (TX -> remote -> rest-of-US); NO count cap.
     keep = [o for o in best.values() if o["fit"] >= KEEP_MIN_FIT]
@@ -598,7 +678,8 @@ def handler(event, _ctx):
             ttl_days = FRESH_DAYS
         expire = now + ttl_days * 86400
         rec = {k: o.get(k) for k in ("company", "title", "location", "url", "source", "fit", "geo",
-                                     "reason", "sponsorNote", "sponsorRisk", "capExempt", "staffing", "postedAt")}
+                                     "reason", "sponsorNote", "sponsorRisk", "capExempt", "staffing",
+                                     "scoredBy", "postedAt")}
         rec["jd"] = (o.get("jd") or "")[:6000]
         rec["scored"] = True  # marks a real weighted-rubric score (vs legacy heuristic rows)
         # Upsert-as-merge: refresh the scan-derived fields and push the freshness clock
@@ -618,6 +699,7 @@ def handler(event, _ctx):
             },
         )
         stored += 1
-    print(f"openings scan: collected={len(openings)} deduped={len(best)} stored={stored} "
-          f"dropped={dropped} errors={errors[:12]}")
-    return {"collected": len(openings), "stored": stored, "dropped": dropped, "errors": errors[:12]}
+    print(f"openings scan: collected={len(openings)} deduped={len(best)} ai_scored={ai_used} "
+          f"stored={stored} dropped={dropped} errors={errors[:12]}")
+    return {"collected": len(openings), "aiScored": ai_used, "stored": stored,
+            "dropped": dropped, "errors": errors[:12]}

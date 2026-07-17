@@ -50,8 +50,15 @@ data "aws_iam_policy_document" "openings_scan" {
     actions   = ["dynamodb:Scan"]
     resources = [aws_dynamodb_table.applications.arn]
   }
-  # No Bedrock — scoring is deterministic (JD/stack keyword overlap), so the scan
-  # costs ~$0 in AI. Deep AI matching happens on demand via Claude, not in this Lambda.
+  # Stage-2 AI scoring: Bedrock reads each top JD for a trustworthy match % (~120 calls/scan).
+  statement {
+    sid     = "BedrockScore"
+    actions = ["bedrock:InvokeModel"]
+    resources = [
+      "arn:aws:bedrock:*::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0",
+      "arn:aws:bedrock:*:${local.acct}:inference-profile/us.anthropic.claude-haiku-4-5-20251001-v1:0",
+    ]
+  }
 }
 
 resource "aws_iam_role_policy" "openings_scan" {
