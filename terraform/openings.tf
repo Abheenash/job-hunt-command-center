@@ -42,17 +42,16 @@ resource "aws_iam_role_policy_attachment" "openings_scan_basic" {
 
 data "aws_iam_policy_document" "openings_scan" {
   statement {
-    actions   = ["dynamodb:PutItem", "dynamodb:UpdateItem"]
+    actions   = ["dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:Scan"]
     resources = [aws_dynamodb_table.openings.arn]
   }
   statement {
-    sid     = "BedrockScore"
-    actions = ["bedrock:InvokeModel"]
-    resources = [
-      "arn:aws:bedrock:*::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0",
-      "arn:aws:bedrock:*:${local.acct}:inference-profile/us.anthropic.claude-haiku-4-5-20251001-v1:0",
-    ]
+    sid       = "ApplicationsRead" # skip roles already in the tracker
+    actions   = ["dynamodb:Scan"]
+    resources = [aws_dynamodb_table.applications.arn]
   }
+  # No Bedrock — scoring is deterministic (JD/stack keyword overlap), so the scan
+  # costs ~$0 in AI. Deep AI matching happens on demand via Claude, not in this Lambda.
 }
 
 resource "aws_iam_role_policy" "openings_scan" {
@@ -74,13 +73,14 @@ resource "aws_lambda_function" "openings_scan" {
   environment {
     variables = {
       OPENINGS_TABLE = aws_dynamodb_table.openings.name
+      APPS_TABLE     = aws_dynamodb_table.applications.name
     }
   }
 }
 
 resource "aws_cloudwatch_event_rule" "openings_scan" {
   name                = "${local.name}-openings-scan"
-  schedule_expression = "cron(0 0/6 * * ? *)" # every 6 hours (00/06/12/18 UTC)
+  schedule_expression = "cron(0 13 * * ? *)" # once daily at 13:00 UTC (cost control)
   tags                = local.tags
 }
 

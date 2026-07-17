@@ -18,9 +18,8 @@ import urllib.request
 import boto3
 
 ddb = boto3.client("dynamodb")
-bedrock = boto3.client("bedrock-runtime")
-BEDROCK_MODEL = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
 TABLE = os.environ["OPENINGS_TABLE"]
+APPS_TABLE = os.environ.get("APPS_TABLE", "")  # to skip roles already in the tracker
 UA = {"User-Agent": "Mozilla/5.0 (jobhunt openings radar)"}
 # Freshness / auto-expiry. Each scan an opening still appears in pushes its clock
 # forward; once it stops appearing it ages out this many days later. Strong matches
@@ -32,12 +31,9 @@ STRONG_DAYS = 14        # strong, sponsor-friendly matches get more runway
 STRONG_FIT = 75         # fit at/above this = "strong"
 KEEP_MIN_FIT = 50       # QUALITY BAR — only keep openings scoring >= this match %
 MAX_STORE = 60          # keep the best ~60 (quality over volume)
-MAX_BEDROCK = 120       # rubric-score a deep pool so every STORED opening is fully
-                        # scored (many drop below the bar, so score well past MAX_STORE)
-
-# Industry-style match rubric — the SAME weighting the résumé/JD ATS matcher uses,
-# so an opening's "fit" is a real weighted match score, not a keyword heuristic.
-FIT_WEIGHTS = {"required": 40, "preferred": 15, "experience": 20, "domain": 15, "ats": 10}
+# Scoring is deterministic (JD-content overlap vs the candidate's stack) — NO Bedrock,
+# so the daily scan costs ~$0 in AI. Deep, AI-quality matching happens on demand via
+# Claude (Max plan) when the candidate sits down to apply.
 
 # --- target companies by ATS (sponsor-friendly; known no-sponsors excluded) ---
 # Live-fetchable via each ATS's public JSON board. Curated to sponsor-friendly
@@ -57,34 +53,20 @@ WORKDAY = [{"name": "Red Hat", "tenant": "redhat", "dc": "wd5", "site": "Jobs"}]
 AMAZON_QUERIES = ["cloud support engineer", "support engineer", "site reliability engineer", "devops engineer"]
 
 # --- role / level / location matching ----------------------------------------
-# Titles that genuinely fit the candidate: entry-level cloud / DevOps / SRE / cloud-
-# support / platform / infrastructure / systems. Deliberately NARROW. A generic
-# "Software Engineer" only qualifies with an infra signal (SWE_INFRA_RE), and off-target
-# specialties (frontend/backend/ML/data/security/etc.) are rejected (OFFTARGET_RE).
-ROLE_RE = re.compile(
-    r"\b(devops|dev ops|\bsre\b|site\s*reliability|reliability engineer|"
-    r"cloud engineer|cloud infrastructure|cloud operations|cloud[- ]?ops|cloud support|"
-    r"platform engineer|platform engineering|infrastructure engineer|infrastructure engineering|"
-    r"systems? engineer|systems? administrator|sysadmin|"
-    r"(cloud|technical|product|it|customer) support engineer|"
-    r"solutions? architect|network (operations|engineer)|\bnoc\b|"
-    r"build (and|&) release|release engineer|devsecops)\b", re.I)
-# A generic "Software Engineer" title only qualifies when paired with an infra signal.
-SWE_INFRA_RE = re.compile(
-    r"software engineer.{0,45}(infrastructure|platform|cloud|reliability|\bsre\b|devops|"
-    r"systems|networking|compute|observability|developer productivity|dev velocity)|"
-    r"(infrastructure|platform|cloud|reliability|\bsre\b|devops|compute).{0,25}software engineer", re.I)
-# Off-target specialties — reject even if a generic keyword slipped through.
-OFFTARGET_RE = re.compile(
-    r"\b(front[- ]?end|frontend|full[- ]?stack|back[- ]?end|backend|mobile|ios|android|web developer|"
-    r"(machine learning|\bml\b|\bai\b|deep learning) engineer|data scien|applied scien|"
-    r"research (scientist|engineer)|data engineer|data analyst|analytics engineer|"
-    r"product manager|program manager|project manager|designer|\bux\b|\bui\b|"
-    r"game|gameplay|graphics|firmware|embedded|hardware|asic|silicon|"
-    r"sales|account executive|solutions engineer|marketing|recruit|"
-    r"accountant|financial analyst|security (engineer|software engineer)|detection|"
-    r"offensive|red team|malware|blockchain|smart contract|quant)\b", re.I)
+# We DON'T gate on the title — every non-intern posting is scored by how much of the
+# candidate's stack its full JD mentions (see _content_score). This is just a SOFT
+# engineering-role hint that nudges the score, never a filter.
+ROLE_HINT_RE = re.compile(
+    r"\b(engineer|developer|sre|devops|architect|operations|administrator|reliability|"
+    r"infrastructure|platform|cloud|systems|sysadmin|support|automation|network)\b", re.I)
 SENIOR_RE = re.compile(r"\b(senior|staff|principal|lead|sr\.?|manager|director|distinguished|head of|vp|iii|iv)\b", re.I)
+# Clearly off-target titles — a SOFT score penalty (not a hard gate; the JD still counts).
+# Restores some precision now that there's no AI judge on the daily scan.
+OFFTARGET_RE = re.compile(
+    r"\b(front[- ]?end|frontend|back[- ]?end|backend|full[- ]?stack|mobile|ios|android|"
+    r"(machine learning|\bml\b|\bai\b) engineer|data scien|product manager|program manager|"
+    r"sales|account executive|solutions engineer|marketing|recruit|business|financial analyst|"
+    r"operations (associate|manager|specialist|analyst|coordinator)|security (engineer|software engineer))\b", re.I)
 JUNIOR_RE = re.compile(r"\b(associate|junior|jr\.?|entry[-\s]?level|new[-\s]?grad|graduate|early[-\s]?career|university|early in career|level 1|\bl1\b|\bi\b|apprentice)\b", re.I)
 INTERN_RE = re.compile(r"\bintern(ship)?\b", re.I)
 NONUS_RE = re.compile(
@@ -114,24 +96,19 @@ US_CITY_RE = re.compile(r"\b(san francisco|sf bay|bay area|new york|nyc|brooklyn
                         r"portland|salt lake|phoenix|nashville|charlotte|raleigh|durham|columbus|"
                         r"minneapolis|san diego|sacramento|irvine|culver city|jersey city)\b", re.I)
 
-SKILL_KW = ["aws", "lambda", "s3", "dynamodb", "ec2", "ecs", "eks", "kubernetes", "terraform",
-            "ci/cd", "cicd", "github actions", "docker", "cloudwatch", "devops", "sre",
-            "reliability", "cloud", "linux", "python", "c++", "iam", "vpc", "network",
-            "incident", "observability", "serverless", "api gateway", "rds", "sql", "bash",
-            "monitoring", "troubleshoot", "containers", "helm", "prometheus", "grafana"]
-
-PROFILE = (
-    "Entry-level candidate: M.S. Computer & Systems Engineering (Dec 2025), AWS Solutions "
-    "Architect Associate, ~1-2 years DevOps / cloud-operations + C++ systems experience. "
-    "Skills: AWS (Lambda, S3, DynamoDB, ECS, EKS, CloudWatch), Terraform, Docker/Kubernetes, "
-    "CI/CD (GitHub Actions), Linux, Python, C++, IAM/VPC/networking, observability/SRE, "
-    "incident response. On F-1 OPT — needs future H-1B sponsorship. Houston TX; remote or relocate. "
-    "TARGET ROLES (score domain HIGH): Cloud Engineer, Cloud Support Engineer, DevOps Engineer, "
-    "Site Reliability Engineer (SRE), Platform Engineer, Infrastructure Engineer, Systems Engineer, "
-    "Cloud Operations, Solutions Architect (associate/entry). NOT A FIT (score domain LOW): "
-    "frontend, mobile, full-stack or backend product engineering, data science / ML / AI, data "
-    "engineering, security engineering, embedded / firmware / hardware, and any senior/staff/principal role."
-)
+# Candidate's stack — used to score JD CONTENT overlap (the funnel), not the title.
+SKILL_KW = ["aws", "lambda", "s3", "dynamodb", "ec2", "ecs", "fargate", "eks", "kubernetes",
+            "k8s", "terraform", "cloudformation", "ansible", "ci/cd", "cicd", "github actions",
+            "gitops", "argocd", "jenkins", "docker", "container", "helm", "cloudwatch", "x-ray",
+            "datadog", "prometheus", "grafana", "splunk", "devops", "devsecops", "sre",
+            "reliability", "slo", "sla", "on-call", "pagerduty", "incident", "runbook",
+            "observability", "monitoring", "logging", "cloud", "linux", "unix", "python",
+            "boto3", "bash", "shell", "c++", "go ", "golang", "sql", "postgres", "mysql",
+            "iam", "vpc", "subnet", "route 53", "load balanc", "alb", "nginx", "network",
+            "dns", "tcp", "serverless", "api gateway", "step functions", "sqs", "sns",
+            "eventbridge", "rds", "secrets manager", "kms", "waf", "guardduty", "security hub",
+            "config", "inspector", "cognito", "troubleshoot", "automation", "scripting",
+            "distributed systems", "microservices", "rest api", "oidc", "least privilege"]
 
 # sponsorship kill-phrases (mirrors the /sponsorship checker's negative scan)
 NEG_RE = re.compile(
@@ -166,13 +143,11 @@ def _clean_html(s):
     return re.sub(r"\s+", " ", s).strip()
 
 
-def _relevant(title):
-    """A role that genuinely fits the candidate (cloud / DevOps / SRE / support /
-    platform / infra) — not an internship, and not an off-target specialty."""
+def _collectible(title):
+    """We match on the JD, not the title — so collect every non-intern posting that has
+    a real title, and let _content_score + Bedrock judge fit against the portfolio."""
     t = title or ""
-    if INTERN_RE.search(t) or OFFTARGET_RE.search(t):
-        return False
-    return bool(ROLE_RE.search(t) or SWE_INFRA_RE.search(t))
+    return bool(t.strip()) and not INTERN_RE.search(t)
 
 
 # --- source collectors (each returns a list of raw opening dicts) ------------
@@ -183,7 +158,7 @@ def from_greenhouse(token):
     company = (d.get("jobs") or [{}])[0].get("company_name") or token.title()
     for j in d.get("jobs", []):
         title = j.get("title", "")
-        if not _relevant(title):
+        if not _collectible(title):
             continue
         loc = (j.get("location") or {}).get("name", "")
         if not _is_us(loc):
@@ -199,7 +174,7 @@ def from_ashby(org):
     d = json.loads(_get(f"https://api.ashbyhq.com/posting-api/job-board/{org}"))
     for j in d.get("jobs", []):
         title = j.get("title", "")
-        if not _relevant(title):
+        if not _collectible(title):
             continue
         loc = j.get("location", "") or (", ".join(j.get("secondaryLocations", []) or []))
         if not _is_us(loc):
@@ -218,7 +193,7 @@ def from_amazon():
         d = json.loads(_get(url))
         for j in d.get("jobs", []):
             title = j.get("title", "")
-            if j.get("is_intern") or not _relevant(title):
+            if j.get("is_intern") or not _collectible(title):
                 continue
             path = j.get("job_path", "")
             if path in seen:
@@ -239,7 +214,7 @@ def from_workday(cfg):
     for p in (d.get("jobPostings") or [])[:20]:
         title = p.get("title", "")
         loc = p.get("locationsText", "")
-        if not _relevant(title) or not _is_us(loc):
+        if not _collectible(title) or not _is_us(loc):
             continue
         jd = ""
         try:  # JD needs a per-posting detail call
@@ -279,11 +254,12 @@ def collect():
         raw += from_amazon()
     except Exception as e:  # noqa: BLE001
         errors.append(f"amazon:{type(e).__name__}")
-    # dedupe by url
+    # dedupe by url; cap JD length (we now collect whole boards, not just title matches)
     seen, uniq = set(), []
     for o in raw:
         if o["url"] and o["url"] not in seen:
             seen.add(o["url"])
+            o["jd"] = (o.get("jd") or "")[:6000]
             uniq.append(o)
     return uniq, errors
 
@@ -296,6 +272,46 @@ def _sponsor(jd):
     if CITIZEN_RE.search(jd):
         return True, "Requires US citizen / clearance"
     return False, ""
+
+
+def _norm(s):
+    return re.sub(r"[^a-z0-9]+", " ", (s or "").lower()).strip()
+
+
+def _load_suppressions():
+    """What NOT to re-scrape: (1) opening IDs the user dismissed or tracked (never
+    resurface them), and (2) company+title of everything already in the tracker (don't
+    re-scrape a role you're already applying to)."""
+    ids, applied = set(), set()
+    try:
+        kw = {"TableName": TABLE, "ProjectionExpression": "openingId, dismissed, tracked"}
+        while True:
+            r = ddb.scan(**kw)
+            for it in r.get("Items", []):
+                if it.get("dismissed", {}).get("BOOL") or it.get("tracked", {}).get("BOOL"):
+                    ids.add(it["openingId"]["S"])
+            if "LastEvaluatedKey" not in r:
+                break
+            kw["ExclusiveStartKey"] = r["LastEvaluatedKey"]
+    except Exception as e:  # noqa: BLE001 — suppression is best-effort, never sink the scan
+        print(f"suppress load (openings) failed: {type(e).__name__}: {e}")
+    if APPS_TABLE:
+        try:
+            kw = {"TableName": APPS_TABLE, "ProjectionExpression": "body"}
+            while True:
+                r = ddb.scan(**kw)
+                for it in r.get("Items", []):
+                    try:
+                        a = json.loads(it["body"]["S"])
+                        applied.add((_norm(a.get("company")), _norm(a.get("title"))))
+                    except Exception:  # noqa: BLE001
+                        pass
+                if "LastEvaluatedKey" not in r:
+                    break
+                kw["ExclusiveStartKey"] = r["LastEvaluatedKey"]
+        except Exception as e:  # noqa: BLE001
+            print(f"suppress load (apps) failed: {type(e).__name__}: {e}")
+    return ids, applied
 
 
 def _geo_tier(o):
@@ -311,87 +327,80 @@ def _geo_tier(o):
     return 3
 
 
-def _base_score(o):
-    title, jd = o["title"], (o.get("jd") or "").lower()
-    s = 40 if (ROLE_RE.search(title) or SWE_INFRA_RE.search(title)) else 0
+def _content_score(o):
+    """Deterministic match score (0-100): how much of the candidate's stack the JD
+    mentions, plus a soft role-word hint and seniority handling. This IS the stored
+    fit — no AI call, so the scan is ~free. Titles don't gate; JD content drives it."""
+    title = (o.get("title") or "").lower()
+    jd = (o.get("jd") or "").lower()
+    text = title + " \n " + jd
+    hits = sum(1 for k in SKILL_KW if k in text)   # distinct stack terms across the JD
+    s = min(78, hits * 6)                          # JD overlap is the main signal
+    if ROLE_HINT_RE.search(title):
+        s += 12
     if JUNIOR_RE.search(title):
-        s += 22
-    if SENIOR_RE.search(title):
-        s -= 38
-    hits = sum(1 for k in SKILL_KW if k in jd)
-    s += min(26, hits * 3)
-    if o.get("blocked"):
-        s -= 70
-    low = (o.get("location") or "").lower()
-    if "remote" in low:
-        s += 6
-    if US_POS_RE.search(o.get("location") or "") or US_STATE_RE.search(o.get("location") or ""):
         s += 8
+    if SENIOR_RE.search(title):
+        s -= 42          # candidate is early-career — push senior/staff/lead below the bar
+    if OFFTARGET_RE.search(title):
+        s -= 40          # frontend/backend/sales/ops-associate/etc. — soft demote
+    if o.get("blocked"):
+        s -= 40
     return max(0, min(100, s))
 
 
-def _bedrock_fit(o):
-    prompt = (
-        f"CANDIDATE PROFILE:\n{PROFILE}\n\n"
-        f"JOB POSTING:\nCompany: {o['company']}\nTitle: {o['title']}\n"
-        f"Location: {o['location']}\nDescription:\n{(o.get('jd') or '')[:3000]}\n\n"
-        "Act as an ATS + technical recruiter screening this candidate for THIS job. Score "
-        "strictly and honestly from the two texts — do NOT inflate; an entry-level candidate "
-        "applying to a senior/mismatched role should score low. Rate each dimension 0-100:\n"
-        "- required: how many of the JD's MUST-HAVE hard skills/tools the profile evidences\n"
-        "- preferred: coverage of the JD's nice-to-have skills\n"
-        "- experience: years / level / scope fit (candidate is early-career: ~2 yrs + an M.S.)\n"
-        "- domain: role/industry relevance (cloud / DevOps / SRE / support / systems)\n"
-        "- ats: share of the JD's key hard keywords (exact terms + common synonyms) in the profile\n"
-        "Reply with ONLY compact JSON, no prose: {\"required\":int,\"preferred\":int,"
-        "\"experience\":int,\"domain\":int,\"ats\":int,\"reason\":str (one short sentence naming "
-        "the single biggest strength or gap),\"sponsorRisk\":\"low\"|\"med\"|\"high\" (high if the "
-        "JD hints at no-sponsorship / citizenship / clearance)}")
-    payload = {"anthropic_version": "bedrock-2023-05-31", "max_tokens": 260, "temperature": 0.2,
-               "messages": [{"role": "user", "content": [{"type": "text", "text": prompt}]}]}
-    resp = bedrock.invoke_model(modelId=BEDROCK_MODEL, body=json.dumps(payload))
-    txt = json.loads(resp["body"].read())["content"][0]["text"]
-    a, b = txt.find("{"), txt.rfind("}")
-    r = json.loads(txt[a:b + 1])
-    # Weighted match score (computed here from the rubric, not a single model guess).
-    total = sum(max(0, min(100, int(r.get(k, 0) or 0))) * w for k, w in FIT_WEIGHTS.items())
-    fit = round(total / sum(FIT_WEIGHTS.values()))
-    return {"fit": max(0, min(100, fit)), "reason": str(r.get("reason", ""))[:200],
-            "sponsorRisk": r.get("sponsorRisk", "med")}
+def _reason(o):
+    """A short, honest 'why it matched' from the stack terms actually present in the JD."""
+    text = ((o.get("title") or "") + " " + (o.get("jd") or "")).lower()
+    matched = [k for k in SKILL_KW if k in text]
+    if not matched:
+        return ""
+    shown = ", ".join(matched[:6])
+    more = f" +{len(matched) - 6} more" if len(matched) > 6 else ""
+    return f"Matches your stack: {shown}{more}. Verify the full JD before applying."
 
 
 def handler(event, _ctx):
     openings, errors = collect()
+    suppressed_ids, applied = _load_suppressions()
     for o in openings:
+        o["oid"] = hashlib.sha1(o["url"].encode()).hexdigest()[:16]
         o["blocked"], o["sponsorNote"] = _sponsor(o.get("jd") or "")
-        o["fit"] = _base_score(o)   # cheap screen — picks who gets a real rubric score
+        o["content"] = _content_score(o)   # JD-overlap funnel — who gets a real match
         o["geo"] = _geo_tier(o)
-    # Rubric-score the strongest candidates by the cheap screen (best first, NOT geo —
-    # geo must not starve the scoring budget). Only these get an accurate weighted match
-    # score + reason, and only these are eligible to be stored, so nothing shown is a
-    # keyword guess.
-    openings.sort(key=lambda o: o["fit"], reverse=True)
-    scored = openings[:MAX_BEDROCK]
-    for o in scored:
-        try:
-            r = _bedrock_fit(o)
-            o["fit"] = min(r["fit"], 25) if o["blocked"] else r["fit"]
-            o["reason"] = r["reason"]
-            o["sponsorRisk"] = "high" if o["blocked"] else r["sponsorRisk"]
-        except Exception as e:  # noqa: BLE001 — unscored -> below the bar, won't store; retried next scan
-            o["fit"], o["reason"] = 0, ""
-            o["sponsorRisk"] = "high" if o["blocked"] else "med"
-            errors.append(f"bedrock:{type(e).__name__}")
+    # Drop before scoring: dismissed/tracked openings (user said no — never resurface),
+    # roles already in the tracker (same company+title), and near-duplicate postings
+    # (same company+title, different URL) — keeping the best-overlap one of each.
+    best, dropped = {}, {"suppressed": 0, "applied": 0, "dup": 0}
+    for o in sorted(openings, key=lambda o: -o["content"]):
+        if o["oid"] in suppressed_ids:
+            dropped["suppressed"] += 1
+            continue
+        ct = (_norm(o.get("company")), _norm(o.get("title")))
+        if ct in applied:
+            dropped["applied"] += 1
+            continue
+        if ct in best:
+            dropped["dup"] += 1
+            continue
+        best[ct] = o
+    # Deterministic scoring: the content-overlap score IS the fit (no AI call). Blocked
+    # (no-sponsorship / clearance) roles are capped low. Every candidate is scored — it's
+    # free — then the quality bar + geo priority pick what's stored.
+    for o in best.values():
+        o["fit"] = min(o["content"], 25) if o["blocked"] else o["content"]
+        o["reason"] = _reason(o)
+        o["sponsorRisk"] = "high" if o["blocked"] else "low"
 
     # Quality bar + geo priority (TX -> remote -> rest-of-US), best match first, capped.
-    keep = [o for o in scored if o["fit"] >= KEEP_MIN_FIT]
+    keep = [o for o in best.values() if o["fit"] >= KEEP_MIN_FIT]
     keep.sort(key=lambda o: (o["geo"], -o["fit"]))
     keep = keep[:MAX_STORE]
 
     now = int(time.time())
     stored = 0
     for o in keep:
-        oid = hashlib.sha1(o["url"].encode()).hexdigest()[:16]
+        oid = o["oid"]
         fit = o["fit"]
         if o.get("blocked"):
             ttl_days = STALE_DAYS
@@ -421,5 +430,6 @@ def handler(event, _ctx):
             },
         )
         stored += 1
-    print(f"openings scan: collected={len(openings)} stored={stored} errors={errors[:12]}")
-    return {"collected": len(openings), "stored": stored, "errors": errors[:12]}
+    print(f"openings scan: collected={len(openings)} deduped={len(best)} stored={stored} "
+          f"dropped={dropped} errors={errors[:12]}")
+    return {"collected": len(openings), "stored": stored, "dropped": dropped, "errors": errors[:12]}

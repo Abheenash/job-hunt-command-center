@@ -454,13 +454,14 @@ def list_openings(user):
 
 
 def mark_opening(opening_id, field, extra=None):
-    """Flag an opening tracked/dismissed so it drops out of the list and future scans
-    keep it hidden. Also shorten its TTL so it cleans itself up soon."""
+    """Flag an opening tracked/dismissed so it drops out of the list AND future scans
+    skip it entirely. Keep the row as a long-lived tombstone (the scanner reads these
+    flags to know what NOT to re-scrape), so a dismissed job won't come back."""
     if field not in ("tracked", "dismissed"):
         return _r(400, {"error": "bad field"})
     expr = "SET #f = :t, expireAt = :e"
     names = {"#f": field}
-    vals = {":t": {"BOOL": True}, ":e": {"N": str(int(time.time()) + 2 * 86400)}}
+    vals = {":t": {"BOOL": True}, ":e": {"N": str(int(time.time()) + 120 * 86400)}}
     if extra and extra.get("appId"):
         expr += ", trackedAppId = :a"
         vals[":a"] = {"S": str(extra["appId"])}
