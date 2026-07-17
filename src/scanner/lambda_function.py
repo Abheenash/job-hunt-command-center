@@ -99,17 +99,21 @@ def _fetch_recent(cred):
         _typ, data = imap.search(None, f'(SINCE {since})')
         ids = data[0].split()
         for mid in ids[-100:]:  # cap per run
-            _typ, raw = imap.fetch(mid, "(RFC822)")
-            if not raw or not raw[0]:
+            try:
+                _typ, raw = imap.fetch(mid, "(RFC822)")
+                if not raw or not raw[0]:
+                    continue
+                m = email.message_from_bytes(raw[0][1])
+                out.append({
+                    "from": _decode(m.get("From", "")),
+                    "subject": _decode(m.get("Subject", "")),
+                    "snippet": _body_snippet(m),
+                    "messageId": m.get("Message-ID", ""),
+                    "receivedAt": int(time.time()),
+                })
+            except Exception as e:  # noqa: BLE001 — a single odd email never sinks the whole scan
+                print(f"skip email {mid}: {type(e).__name__}: {e}")
                 continue
-            m = email.message_from_bytes(raw[0][1])
-            out.append({
-                "from": _decode(m.get("From", "")),
-                "subject": _decode(m.get("Subject", "")),
-                "snippet": _body_snippet(m),
-                "messageId": m.get("Message-ID", ""),
-                "receivedAt": int(time.time()),
-            })
     finally:
         try:
             imap.logout()
@@ -135,11 +139,29 @@ def _existing_event_ids():
     return ids
 
 
+def _safe_bytes_decode(b, enc):
+    """Decode email bytes even when the declared charset is unknown/invalid. Some servers
+    label parts 'unknown-8bit' (RFC 1428) or use bogus charsets that aren't in Python's codec
+    registry — bytes.decode() then raises LookupError at codec lookup (before 'ignore' applies).
+    Fall back through utf-8 then latin-1 (which never fails), so one odd email can't sink a scan."""
+    for cand in (enc, "utf-8", "latin-1"):
+        if not cand:
+            continue
+        try:
+            return b.decode(cand, "ignore")
+        except (LookupError, UnicodeDecodeError):
+            continue
+    return b.decode("latin-1", "ignore")
+
+
 def _decode(s):
-    parts = decode_header(s)
     out = ""
+    try:
+        parts = decode_header(s)
+    except Exception:  # noqa: BLE001 — malformed header → return the raw string
+        return s if isinstance(s, str) else ""
     for text, enc in parts:
-        out += text.decode(enc or "utf-8", "ignore") if isinstance(text, bytes) else text
+        out += _safe_bytes_decode(text, enc) if isinstance(text, bytes) else text
     return out
 
 
