@@ -30,15 +30,26 @@ STALE_DAYS = 3          # blocked / sponsorship-risk openings age out faster
 STRONG_DAYS = 14        # strong, sponsor-friendly matches get more runway
 STRONG_FIT = 75         # fit at/above this = "strong"
 KEEP_MIN_FIT = 50       # QUALITY BAR — only keep openings scoring >= this match %
-MAX_STORE = 60          # keep the best ~60 (quality over volume)
+MAX_STORE = 500         # effectively uncapped — filters + sort handle the volume
 # Scoring is deterministic (JD-content overlap vs the candidate's stack) — NO Bedrock,
 # so the daily scan costs ~$0 in AI. Deep, AI-quality matching happens on demand via
 # Claude (Max plan) when the candidate sits down to apply.
 
+# Adzuna job-search AGGREGATOR (free key at developer.adzuna.com) — set both env vars to
+# enable; it pulls listings from many sources (incl. reposts of LinkedIn/Indeed roles).
+ADZUNA_APP_ID = os.environ.get("ADZUNA_APP_ID", "")
+ADZUNA_APP_KEY = os.environ.get("ADZUNA_APP_KEY", "")
+ADZUNA_QUERIES = ["cloud engineer", "devops engineer", "site reliability engineer",
+                  "cloud support engineer", "platform engineer", "infrastructure engineer",
+                  "systems engineer", "cloud operations"]
+
+# Public GitHub new-grad listing feeds — each row carries an explicit sponsorship flag (🛂).
+GITHUB_FEEDS = [
+    ("https://raw.githubusercontent.com/SimplifyJobs/New-Grad-Positions/dev/.github/scripts/listings.json", "github-simplify"),
+    ("https://raw.githubusercontent.com/vanshb03/New-Grad-2027/dev/.github/scripts/listings.json", "github-vansh"),
+]
+
 # --- target companies by ATS (sponsor-friendly; known no-sponsors excluded) ---
-# Live-fetchable via each ATS's public JSON board. Curated to sponsor-friendly
-# tech / infra / data / security / fintech; GitLab & Zapier deliberately excluded
-# (documented no-sponsor). The per-role JD scan still flags any no-sponsor posting.
 GREENHOUSE = [
     "twilio", "cloudflare", "datadog", "databricks", "mongodb", "elastic", "stripe",
     "coinbase", "robinhood", "airbnb", "reddit", "dropbox", "pinterest", "instacart",
@@ -46,11 +57,34 @@ GREENHOUSE = [
     "lyft", "grafanalabs", "pagerduty", "newrelic", "sumologic", "cockroachlabs",
     "fivetran", "starburst", "dremio", "vercel", "fastly", "scaleai", "flexport", "faire",
     "airtable", "webflow", "verkada", "nuro", "chime", "anthropic", "rubrik",
-    "purestorage", "okta", "zscaler", "yugabyte"]
+    "purestorage", "okta", "zscaler", "yugabyte",
+    "cribl", "circleci", "gemini"]
 ASHBY = ["confluent", "snowflake", "openai", "ramp", "notion", "linear", "perplexity",
-         "cursor", "replit", "render", "supabase", "posthog"]
-WORKDAY = [{"name": "Red Hat", "tenant": "redhat", "dc": "wd5", "site": "Jobs"}]
+         "cursor", "replit", "render", "supabase", "posthog", "temporal"]
+WORKDAY = [
+    {"name": "Red Hat", "tenant": "redhat", "dc": "wd5", "site": "Jobs"},
+    {"name": "Nvidia", "tenant": "nvidia", "dc": "wd5", "site": "NVIDIAExternalCareerSite"}]
+LEVER = ["palantir", "plaid"]
 AMAZON_QUERIES = ["cloud support engineer", "support engineer", "site reliability engineer", "devops engineer"]
+
+# --- sponsorship policy (user requires sponsor-ENABLED or LIKELY; drop confirmed no-sponsor) ---
+NO_SPONSOR = {"capital one", "jpmorgan", "jpmorgan chase", "gitlab", "zapier"}
+BIG_SPONSORS = {"amazon", "amazon web services", "aws", "microsoft", "google", "ibm",
+    "nvidia", "salesforce", "cisco", "adobe", "intel", "qualcomm", "paypal", "visa",
+    "mastercard", "stripe", "databricks", "snowflake", "mongodb", "confluent", "cloudflare",
+    "datadog", "oracle", "sap", "servicenow", "atlassian", "deloitte", "accenture",
+    "capgemini", "cognizant", "infosys", "tcs", "wipro", "kyndryl", "red hat", "lseg"}
+# ATS-sourced companies are curated sponsor-friendly, so treat them as "likely" too.
+SPONSOR_FRIENDLY = {c.lower() for c in GREENHOUSE + ASHBY + LEVER} | BIG_SPONSORS
+CAP_EXEMPT_RE = re.compile(
+    r"\b(university|univ\.|college|institute of technology|\binstitute\b|school of|"
+    r"hospital|health system|healthcare|medical center|medical college|cancer center|"
+    r"\bclinic\b|md anderson|nonprofit|research institute|methodist|baylor college)\b", re.I)
+# Strong target titles — used to score JD-less feed rows (they carry no description).
+TARGET_TITLE_RE = re.compile(
+    r"(cloud|devops|dev ops|sre|site\s*reliability|reliability|platform|infrastructure|"
+    r"systems?)[\w /,-]*\b(engineer|administrator|architect|operations|developer)\b|"
+    r"\b(cloud support|technical support|cloud operations|solutions? architect|systems? admin)", re.I)
 
 # --- role / level / location matching ----------------------------------------
 # We DON'T gate on the title — every non-intern posting is scored by how much of the
@@ -59,6 +93,12 @@ AMAZON_QUERIES = ["cloud support engineer", "support engineer", "site reliabilit
 ROLE_HINT_RE = re.compile(
     r"\b(engineer|developer|sre|devops|architect|operations|administrator|reliability|"
     r"infrastructure|platform|cloud|systems|sysadmin|support|automation|network)\b", re.I)
+# TIGHTER cloud/infra hint — used to gate JD-less feed rows (title-only) so generic
+# "Electrical Engineer" / "Silicon" new-grad roles don't clear the bar on a bare title.
+CLOUD_HINT_RE = re.compile(
+    r"\b(cloud|devops|dev ops|sre|site\s*reliability|reliability|infrastructure|platform|"
+    r"systems?|sysadmin|kubernetes|k8s|observability|devsecops|release engineer|"
+    r"cloud support|technical support|network operations|\bnoc\b)\b", re.I)
 SENIOR_RE = re.compile(r"\b(senior|staff|principal|lead|sr\.?|manager|director|distinguished|head of|vp|iii|iv)\b", re.I)
 # Clearly off-target titles — a SOFT score penalty (not a hard gate; the JD still counts).
 # Restores some precision now that there's no AI judge on the daily scan.
@@ -233,6 +273,77 @@ def from_workday(cfg):
     return out
 
 
+def from_lever(company):
+    out = []
+    d = json.loads(_get(f"https://api.lever.co/v0/postings/{company}?mode=json"))
+    for j in d:
+        title = j.get("text", "")
+        if not _collectible(title):
+            continue
+        loc = (j.get("categories") or {}).get("location", "") or ""
+        if not _is_us(loc):
+            continue
+        out.append({"company": company.title(), "title": title, "location": loc,
+                    "url": j.get("hostedUrl") or j.get("applyUrl", ""), "source": "lever",
+                    "jd": _clean_html(j.get("descriptionPlain") or j.get("description", "")),
+                    "postedAt": int((j.get("createdAt") or 0) / 1000)})
+    return out
+
+
+def from_github_feed(url, source):
+    """Public new-grad listing feeds (Simplify / vanshb03) — carry an explicit sponsorship
+    field, so we hard-exclude no-sponsor rows at the source. No JD (title-only)."""
+    out = []
+    data = json.loads(_get(url, timeout=15))
+    rows = data if isinstance(data, list) else data.get("listings", [])
+    for j in rows:
+        if j.get("active") is False or j.get("is_visible") is False:
+            continue
+        title = j.get("title", "")
+        if not _collectible(title):
+            continue
+        locs = j.get("locations") or []
+        loc = ", ".join(locs) if isinstance(locs, list) else str(locs)
+        if not _is_us(loc):
+            continue
+        sp = (j.get("sponsorship") or "").strip()
+        if sp in ("Does Not Offer Sponsorship", "U.S. Citizenship is Required"):
+            continue  # hard sponsorship exclude at the source
+        out.append({"company": j.get("company_name", "") or "", "title": title,
+                    "location": loc, "url": j.get("url", "") or "", "source": source,
+                    "jd": "", "feedSponsor": sp,
+                    "postedAt": int(j.get("date_posted") or j.get("date_updated") or 0)})
+    return out
+
+
+def from_adzuna():
+    """Aggregator (opt-in via env key) — pulls broadly across sources, incl. reposts of
+    LinkedIn/Indeed roles. No sponsorship field, so sponsorship is inferred downstream."""
+    out = []
+    if not (ADZUNA_APP_ID and ADZUNA_APP_KEY):
+        return out
+    for q in ADZUNA_QUERIES:
+        try:
+            url = ("https://api.adzuna.com/v1/api/jobs/us/search/1?" + urllib.parse.urlencode({
+                "app_id": ADZUNA_APP_ID, "app_key": ADZUNA_APP_KEY, "results_per_page": 50,
+                "what": q, "max_days_old": 21, "content-type": "application/json"}))
+            d = json.loads(_get(url, timeout=15))
+        except Exception:  # noqa: BLE001 — one query failing never sinks the source
+            continue
+        for j in d.get("results", []):
+            title = _clean_html(j.get("title", ""))
+            if not _collectible(title):
+                continue
+            loc = (j.get("location") or {}).get("display_name", "")
+            if not _is_us(loc):
+                continue
+            out.append({"company": (j.get("company") or {}).get("display_name", "") or "",
+                        "title": title, "location": loc, "url": j.get("redirect_url", ""),
+                        "source": "adzuna", "jd": _clean_html(j.get("description", "")),
+                        "postedAt": 0})
+    return out
+
+
 def collect():
     raw, errors = [], []
     for tok in GREENHOUSE:
@@ -245,15 +356,29 @@ def collect():
             raw += from_ashby(org)
         except Exception as e:  # noqa: BLE001
             errors.append(f"ashby:{org}:{type(e).__name__}")
+    for co in LEVER:
+        try:
+            raw += from_lever(co)
+        except Exception as e:  # noqa: BLE001
+            errors.append(f"lever:{co}:{type(e).__name__}")
     for cfg in WORKDAY:
         try:
             raw += from_workday(cfg)
         except Exception as e:  # noqa: BLE001
             errors.append(f"wd:{cfg['name']}:{type(e).__name__}")
+    for feed_url, src in GITHUB_FEEDS:
+        try:
+            raw += from_github_feed(feed_url, src)
+        except Exception as e:  # noqa: BLE001
+            errors.append(f"{src}:{type(e).__name__}")
     try:
         raw += from_amazon()
     except Exception as e:  # noqa: BLE001
         errors.append(f"amazon:{type(e).__name__}")
+    try:
+        raw += from_adzuna()
+    except Exception as e:  # noqa: BLE001
+        errors.append(f"adzuna:{type(e).__name__}")
     # dedupe by url; cap JD length (we now collect whole boards, not just title matches)
     seen, uniq = set(), []
     for o in raw:
@@ -266,12 +391,24 @@ def collect():
 
 # --- scoring -----------------------------------------------------------------
 
-def _sponsor(jd):
-    if NEG_RE.search(jd):
-        return True, "JD excludes visa sponsorship"
-    if CITIZEN_RE.search(jd):
-        return True, "Requires US citizen / clearance"
-    return False, ""
+def _sponsor_verdict(o):
+    """Enforce the sponsor-ENABLED-or-LIKELY rule. Returns (blocked, risk, reason, cap_exempt):
+    blocked=True → confirmed no-sponsorship (DROPPED); risk 'low' = enabled/likely, 'med' = unverified."""
+    jd = o.get("jd") or ""
+    company_raw = o.get("company") or ""
+    company = _norm(company_raw)
+    cap = bool(CAP_EXEMPT_RE.search(company_raw))
+    if NEG_RE.search(jd) or CITIZEN_RE.search(jd):
+        return True, "high", "JD excludes sponsorship / needs citizen or clearance", cap
+    if company in NO_SPONSOR:
+        return True, "high", "Employer documented as not sponsoring", cap
+    if cap:
+        return False, "low", "Cap-exempt employer — H-1B lottery-proof", True
+    if (o.get("feedSponsor") or "") == "Offers Sponsorship":
+        return False, "low", "Listing explicitly offers visa sponsorship", False
+    if company in SPONSOR_FRIENDLY or o.get("source", "") in ("greenhouse", "ashby", "amazon", "workday", "lever"):
+        return False, "low", "Known sponsor-friendly employer", False
+    return False, "med", "Sponsorship unverified — check the posting / 🛂 tool", False
 
 
 def _norm(s):
@@ -328,14 +465,23 @@ def _geo_tier(o):
 
 
 def _content_score(o):
-    """Deterministic match score (0-100): how much of the candidate's stack the JD
-    mentions, plus a soft role-word hint and seniority handling. This IS the stored
-    fit — no AI call, so the scan is ~free. Titles don't gate; JD content drives it."""
+    """Deterministic match score (0-100). With a real JD → how much of the candidate's stack
+    it mentions. Without a JD (GitHub-feed rows are title-only) → the title carries the signal.
+    This IS the stored fit — no AI call, so the scan is ~free."""
     title = (o.get("title") or "").lower()
     jd = (o.get("jd") or "").lower()
     text = title + " \n " + jd
-    hits = sum(1 for k in SKILL_KW if k in text)   # distinct stack terms across the JD
-    s = min(78, hits * 6)                          # JD overlap is the main signal
+    hits = sum(1 for k in SKILL_KW if k in text)   # distinct stack terms present
+    if len(jd) >= 200:                             # real JD → content-overlap driven
+        s = min(78, hits * 6)
+    else:                                          # JD-less (feed) → title-driven, cloud-gated
+        if TARGET_TITLE_RE.search(title):
+            s = 64
+        elif CLOUD_HINT_RE.search(title):
+            s = 54
+        else:
+            s = 20     # generic engineer/developer on a bare title → won't clear 50%
+        s += min(16, hits * 5)
     if ROLE_HINT_RE.search(title):
         s += 12
     if JUNIOR_RE.search(title):
@@ -344,20 +490,18 @@ def _content_score(o):
         s -= 42          # candidate is early-career — push senior/staff/lead below the bar
     if OFFTARGET_RE.search(title):
         s -= 40          # frontend/backend/sales/ops-associate/etc. — soft demote
-    if o.get("blocked"):
-        s -= 40
     return max(0, min(100, s))
 
 
 def _reason(o):
-    """A short, honest 'why it matched' from the stack terms actually present in the JD."""
+    """A short, honest 'why it matched' — stack terms present in the JD, else the sponsor note."""
     text = ((o.get("title") or "") + " " + (o.get("jd") or "")).lower()
     matched = [k for k in SKILL_KW if k in text]
-    if not matched:
-        return ""
-    shown = ", ".join(matched[:6])
-    more = f" +{len(matched) - 6} more" if len(matched) > 6 else ""
-    return f"Matches your stack: {shown}{more}. Verify the full JD before applying."
+    if matched:
+        shown = ", ".join(matched[:6])
+        more = f" +{len(matched) - 6} more" if len(matched) > 6 else ""
+        return f"Matches your stack: {shown}{more}. Verify the full JD before applying."
+    return o.get("sponsorNote") or ""
 
 
 def handler(event, _ctx):
@@ -365,14 +509,17 @@ def handler(event, _ctx):
     suppressed_ids, applied = _load_suppressions()
     for o in openings:
         o["oid"] = hashlib.sha1(o["url"].encode()).hexdigest()[:16]
-        o["blocked"], o["sponsorNote"] = _sponsor(o.get("jd") or "")
-        o["content"] = _content_score(o)   # JD-overlap funnel — who gets a real match
+        o["blocked"], o["sponsorRisk"], o["sponsorNote"], o["capExempt"] = _sponsor_verdict(o)
+        o["content"] = _content_score(o)
         o["geo"] = _geo_tier(o)
-    # Drop before scoring: dismissed/tracked openings (user said no — never resurface),
-    # roles already in the tracker (same company+title), and near-duplicate postings
-    # (same company+title, different URL) — keeping the best-overlap one of each.
-    best, dropped = {}, {"suppressed": 0, "applied": 0, "dup": 0}
+    # Drop before scoring: confirmed no-sponsorship (user requires sponsor-enabled/likely),
+    # dismissed/tracked openings, roles already in the tracker, and near-duplicate postings
+    # (same company+title across sources) — keeping the best-overlap one of each.
+    best, dropped = {}, {"nosponsor": 0, "suppressed": 0, "applied": 0, "dup": 0}
     for o in sorted(openings, key=lambda o: -o["content"]):
+        if o["blocked"]:
+            dropped["nosponsor"] += 1
+            continue
         if o["oid"] in suppressed_ids:
             dropped["suppressed"] += 1
             continue
@@ -384,15 +531,12 @@ def handler(event, _ctx):
             dropped["dup"] += 1
             continue
         best[ct] = o
-    # Deterministic scoring: the content-overlap score IS the fit (no AI call). Blocked
-    # (no-sponsorship / clearance) roles are capped low. Every candidate is scored — it's
-    # free — then the quality bar + geo priority pick what's stored.
+    # Deterministic scoring: the content/title-overlap score IS the fit (no AI call).
     for o in best.values():
-        o["fit"] = min(o["content"], 25) if o["blocked"] else o["content"]
+        o["fit"] = o["content"]
         o["reason"] = _reason(o)
-        o["sponsorRisk"] = "high" if o["blocked"] else "low"
 
-    # Quality bar + geo priority (TX -> remote -> rest-of-US), best match first, capped.
+    # Quality bar (>=50% match) + geo priority (TX -> remote -> rest-of-US); NO count cap.
     keep = [o for o in best.values() if o["fit"] >= KEEP_MIN_FIT]
     keep.sort(key=lambda o: (o["geo"], -o["fit"]))
     keep = keep[:MAX_STORE]
@@ -409,8 +553,8 @@ def handler(event, _ctx):
         else:
             ttl_days = FRESH_DAYS
         expire = now + ttl_days * 86400
-        rec = {k: o.get(k) for k in ("company", "title", "location", "url", "source",
-                                     "fit", "geo", "reason", "blocked", "sponsorNote", "sponsorRisk")}
+        rec = {k: o.get(k) for k in ("company", "title", "location", "url", "source", "fit",
+                                     "geo", "reason", "sponsorNote", "sponsorRisk", "capExempt", "postedAt")}
         rec["jd"] = (o.get("jd") or "")[:6000]
         rec["scored"] = True  # marks a real weighted-rubric score (vs legacy heuristic rows)
         # Upsert-as-merge: refresh the scan-derived fields and push the freshness clock

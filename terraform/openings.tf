@@ -74,6 +74,9 @@ resource "aws_lambda_function" "openings_scan" {
     variables = {
       OPENINGS_TABLE = aws_dynamodb_table.openings.name
       APPS_TABLE     = aws_dynamodb_table.applications.name
+      # Adzuna aggregator is opt-in — set these to a free key from developer.adzuna.com
+      ADZUNA_APP_ID  = var.adzuna_app_id
+      ADZUNA_APP_KEY = var.adzuna_app_key
     }
   }
 }

@@ -31,3 +31,16 @@ variable "bedrock_budget_usd" {
   type        = number
   default     = 15
 }
+
+variable "adzuna_app_id" {
+  description = "Adzuna aggregator app_id (free at developer.adzuna.com); empty disables Adzuna"
+  type        = string
+  default     = ""
+}
+
+variable "adzuna_app_key" {
+  description = "Adzuna aggregator app_key; empty disables Adzuna"
+  type        = string
+  default     = ""
+  sensitive   = true
+}

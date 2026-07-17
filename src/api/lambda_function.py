@@ -101,7 +101,7 @@ BUCKET = os.environ["DOCS_BUCKET"]
 OPENINGS = os.environ.get("OPENINGS_TABLE", "")
 SCAN_FN = os.environ.get("OPENINGS_SCAN_FN", "")
 OPENINGS_MIN_FIT = 50   # quality bar for what the radar shows (mirrors the scanner)
-OPENINGS_MAX = 60       # show the best ~60, not a giant wall
+OPENINGS_MAX = 500      # effectively uncapped — filters/sort handle the volume
 PRESIGN_TTL = 300
 
 

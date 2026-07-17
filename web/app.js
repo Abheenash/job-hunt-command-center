@@ -813,11 +813,18 @@ async function loadOpenings() {
   if (currentView === "openings" && $("#openings-view") && !$("#openings-view").hidden) renderOpenings();
 }
 function opRisk(o) {
-  if (o.blocked || o.sponsorRisk === "high") return `<span class="op-spon bad">✗ sponsorship risk</span>`;
+  if (o.capExempt) return `<span class="op-spon ok" title="University/hospital — H-1B lottery-proof">🎓 Cap-exempt sponsor</span>`;
   if (o.sponsorRisk === "low") return `<span class="op-spon ok">✓ sponsor-friendly</span>`;
   return `<span class="op-spon med">~ verify sponsorship</span>`;
 }
 function opFitClass(f) { return f >= 75 ? "good" : f >= 55 ? "ok" : "low"; }
+const SRC_LABEL = { greenhouse: "Greenhouse", ashby: "Ashby", amazon: "Amazon", workday: "Workday",
+  lever: "Lever", adzuna: "Adzuna", "github-simplify": "GitHub · Simplify", "github-vansh": "GitHub · NewGrad" };
+const PLAT_LABEL = { greenhouse: "Greenhouse", ashby: "Ashby", amazon: "Amazon", workday: "Workday",
+  lever: "Lever", adzuna: "Adzuna (aggregator)", github: "GitHub feeds" };
+function opSrcLabel(s) { return SRC_LABEL[s] || String(s || ""); }
+function opPlatKey(o) { const s = o.source || ""; return s.indexOf("github") === 0 ? "github" : s; }
+function opAvailPlatforms() { const s = new Set(); OPENINGS.forEach((o) => s.add(opPlatKey(o))); return [...s].filter(Boolean).sort(); }
 function opGeoPill(o) {
   if (o.geo === 0) return `<span class="op-badge tx">📍 Texas</span>`;
   if (o.geo === 1) return `<span class="op-badge rem">🏠 Remote</span>`;
@@ -826,6 +833,7 @@ function opGeoPill(o) {
 function opBadges(o) {
   const now = Math.floor(Date.now() / 1000);
   let h = "";
+  if (o.capExempt) h += `<span class="op-badge cap" title="Cap-exempt employer — no H-1B lottery">🎓 Cap-exempt</span>`;
   if (o.firstSeenAt && now - o.firstSeenAt < NEW_WINDOW) h += `<span class="op-badge new">🆕 New</span>`;
   if (o.expireAt && o.expireAt - now < SOON_WINDOW) h += `<span class="op-badge soon" title="Aging out soon — Apply or Track it to keep it">⏳ Leaving soon</span>`;
   return h;
@@ -835,7 +843,7 @@ function opCard(o, i) {
   return `<article class="op-card">
     <div class="op-rank">${i + 1}</div>
     <div class="op-main">
-      <div class="op-top"><b>${esc(o.company || "—")}</b><span class="op-src">${esc(o.source || "")}</span>${opGeoPill(o)}${opBadges(o)}</div>
+      <div class="op-top"><b>${esc(o.company || "—")}</b><span class="op-src">${esc(opSrcLabel(o.source))}</span>${opGeoPill(o)}${opBadges(o)}</div>
       <div class="op-title">${esc(o.title || "")}</div>
       <div class="op-loc">${esc(o.location || "")}</div>
       ${o.reason ? `<p class="op-reason">${esc(o.reason)}</p>` : ""}
@@ -854,12 +862,13 @@ function opSourcesPanel() {
     <summary>ℹ️ Where these come from — and what to check yourself</summary>
     <div class="op-src-body">
       <div class="op-src-col">
-        <h4>✅ Auto-scanned daily</h4>
-        <p>Documented ATS job-board JSON (no bot-blocking), refreshed every morning + on Rescan:</p>
+        <h4>✅ Auto-scanned daily (all sponsor-gated)</h4>
+        <p>Refreshed every morning + on Rescan. Confirmed no-sponsorship roles are dropped:</p>
         <ul>
-          <li><b>~60 sponsor-friendly tech companies</b> on Greenhouse &amp; Ashby — Twilio, Cloudflare, Datadog, Stripe, Snowflake, Confluent, OpenAI, Databricks, MongoDB, Elastic, Coinbase, Reddit, Figma, Okta, PagerDuty, HashiCorp-adjacent…</li>
-          <li><b>Amazon / AWS</b> (amazon.jobs) — cloud support · SRE · DevOps</li>
-          <li><b>Red Hat</b> (Workday)</li>
+          <li><b>~65 sponsor-friendly companies</b> on Greenhouse / Ashby / Lever (Twilio, Cloudflare, Datadog, Stripe, Snowflake, Confluent, OpenAI, Palantir, Databricks, MongoDB…)</li>
+          <li><b>Amazon / AWS</b> · <b>Red Hat</b> &amp; <b>Nvidia</b> (Workday)</li>
+          <li><b>GitHub 🛂 feeds</b> (SimplifyJobs + New-Grad-2027) — explicit sponsorship tags</li>
+          <li><b>Adzuna aggregator</b> — broad, incl. reposts of LinkedIn/Indeed roles (opt-in key)</li>
         </ul>
       </div>
       <div class="op-src-col">
@@ -885,7 +894,7 @@ function opSourcesPanel() {
   </details>`;
 }
 // ---- Openings filters + sorting (all client-side over the loaded list) ------
-let opFilters = { q: "", state: "", sponsor: "", minFit: 0, sort: "geo" };
+let opFilters = { q: "", state: "", sponsor: "", platform: "", minFit: 0, sort: "geo" };
 const STATE_NAMES = { alabama: "AL", alaska: "AK", arizona: "AZ", arkansas: "AR", california: "CA",
   colorado: "CO", connecticut: "CT", delaware: "DE", florida: "FL", georgia: "GA", hawaii: "HI",
   idaho: "ID", illinois: "IL", indiana: "IN", iowa: "IA", kansas: "KS", kentucky: "KY",
@@ -921,11 +930,11 @@ function opMatchesFilters(o) {
     else if (!opStatesOf(o).has(f.state)) return false;
   }
   if (f.sponsor) {
-    const risky = o.blocked || o.sponsorRisk === "high";
-    if (f.sponsor === "friendly" && !(o.sponsorRisk === "low" && !o.blocked)) return false;
-    if (f.sponsor === "verify" && !(o.sponsorRisk === "med" && !o.blocked)) return false;
-    if (f.sponsor === "risk" && !risky) return false;
+    if (f.sponsor === "friendly" && o.sponsorRisk !== "low") return false;
+    if (f.sponsor === "cap" && !o.capExempt) return false;
+    if (f.sponsor === "verify" && o.sponsorRisk !== "med") return false;
   }
+  if (f.platform && opPlatKey(o) !== f.platform) return false;
   if (f.minFit && (o.fit || 0) < f.minFit) return false;
   return true;
 }
@@ -946,10 +955,13 @@ function opFilterBar() {
     `<option value="Remote"${opSel("Remote", f.state)}>🏠 Remote</option>`]
     .concat(opAvailStates().map((c) => `<option value="${c}"${opSel(c, f.state)}>${c}${c === "TX" ? " ★ Texas" : ""}</option>`)).join("");
   const opt = (pairs, cur) => pairs.map(([v, l]) => `<option value="${v}"${opSel(String(v), String(cur))}>${l}</option>`).join("");
+  const platOpts = [`<option value=""${opSel("", f.platform)}>All sources</option>`]
+    .concat(opAvailPlatforms().map((k) => `<option value="${k}"${opSel(k, f.platform)}>${PLAT_LABEL[k] || k}</option>`)).join("");
   return `<div class="op-filters">
     <input id="opf-q" class="op-f" type="search" placeholder="🔎 Search company / title…" value="${esc(f.q)}">
     <select id="opf-state" class="op-f" title="Location / state">${stateOpts}</select>
-    <select id="opf-sponsor" class="op-f" title="Sponsorship">${opt([["", "All sponsorship"], ["friendly", "✓ Sponsor-friendly"], ["verify", "~ Verify sponsorship"], ["risk", "✗ Risk / blocked"]], f.sponsor)}</select>
+    <select id="opf-sponsor" class="op-f" title="Sponsorship">${opt([["", "All sponsorship"], ["friendly", "✓ Sponsor-friendly"], ["cap", "🎓 Cap-exempt"], ["verify", "~ Verify"]], f.sponsor)}</select>
+    <select id="opf-plat" class="op-f" title="Source / platform">${platOpts}</select>
     <select id="opf-fit" class="op-f" title="Minimum match %">${opt([[0, "Any match %"], [50, "50%+ match"], [70, "70%+ match"], [80, "80%+ match"]], f.minFit)}</select>
     <label class="op-f-sort">Sort <select id="opf-sort" class="op-f">${opt([["geo", "Texas first"], ["fit", "Best match %"], ["new", "Newest"], ["soon", "Leaving soon"], ["company", "Company A–Z"]], f.sort)}</select></label>
     <span id="op-count-live" class="op-count"></span>
@@ -963,7 +975,7 @@ function wireOpCardButtons() {
   }));
   $$("#openings-view .op-dismiss").forEach((b) => (b.onclick = () => dismissOpening(b.dataset.id)));
 }
-function resetOpFilters() { opFilters = { q: "", state: "", sponsor: "", minFit: 0, sort: "geo" }; renderOpenings(); }
+function resetOpFilters() { opFilters = { q: "", state: "", sponsor: "", platform: "", minFit: 0, sort: "geo" }; renderOpenings(); }
 function renderOpList() {
   const box = $("#op-results"); if (!box) return;
   const rows = applyOpFilters();
@@ -998,7 +1010,7 @@ function renderOpenings() {
   meta.push(`${OPENINGS.length} live`);
   if (nNew) meta.push(`<b class="op-c new">${nNew} new</b>`);
   if (nSoon) meta.push(`<b class="op-c soon">${nSoon} leaving soon</b>`);
-  el.innerHTML = `<div class="page-head"><div><h1>🔎 Openings</h1><p class="sub">Entry-level cloud · DevOps · SRE · support roles scanned across sponsor-friendly companies, scored by how much each posting's requirements overlap your stack, and ranked <b>Texas first, then remote, then the rest of the US</b>, by match % within each. Only roles that clear a <b>50% match bar are kept (best ~60)</b>; new finds are merged in, and ones you don't act on age out after about a week. This is a fast daily shortlist — run a deeper AI match on the ones you like before applying.</p>
+  el.innerHTML = `<div class="page-head"><div><h1>🔎 Openings</h1><p class="sub">Entry-level cloud · DevOps · SRE · support roles scanned across sponsor-friendly companies, pulled daily from ATS boards (Greenhouse/Ashby/Amazon/Workday/Lever), the GitHub 🛂 sponsorship feeds, and the Adzuna aggregator — then <b>every confirmed no-sponsorship role is dropped</b> (only sponsor-enabled or likely-to-sponsor kept), scored by stack overlap, and ranked <b>Texas → remote → rest of US</b> by match %. Only ≥50% matches kept (no count cap). Filter by source, state, sponsorship. Run a deeper AI match before applying.</p>
       <p class="op-meta">${meta.join(" · ")}</p></div>
       <div class="head-actions"><button id="op-rescan" class="btn">↻ Rescan</button></div></div>
     ${opSourcesPanel()}
@@ -1010,6 +1022,7 @@ function renderOpenings() {
   const q = $("#opf-q"); if (q) q.oninput = () => { opFilters.q = q.value; renderOpList(); };
   const st = $("#opf-state"); if (st) st.onchange = () => { opFilters.state = st.value; renderOpList(); };
   const sp = $("#opf-sponsor"); if (sp) sp.onchange = () => { opFilters.sponsor = sp.value; renderOpList(); };
+  const pl = $("#opf-plat"); if (pl) pl.onchange = () => { opFilters.platform = pl.value; renderOpList(); };
   const ft = $("#opf-fit"); if (ft) ft.onchange = () => { opFilters.minFit = +ft.value; renderOpList(); };
   const so = $("#opf-sort"); if (so) so.onchange = () => { opFilters.sort = so.value; renderOpList(); };
   const cl = $("#opf-clear"); if (cl) cl.onclick = resetOpFilters;
