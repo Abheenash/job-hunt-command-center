@@ -895,7 +895,7 @@ function opSourcesPanel() {
   </details>`;
 }
 // ---- Openings filters + sorting (all client-side over the loaded list) ------
-let opFilters = { q: "", state: "", sponsor: "", platform: "", minFit: 0, sort: "geo" };
+let opFilters = { q: "", state: "", sponsor: "friendly", platform: "", minFit: 0, sort: "geo" };
 const STATE_NAMES = { alabama: "AL", alaska: "AK", arizona: "AZ", arkansas: "AR", california: "CA",
   colorado: "CO", connecticut: "CT", delaware: "DE", florida: "FL", georgia: "GA", hawaii: "HI",
   idaho: "ID", illinois: "IL", indiana: "IN", iowa: "IA", kansas: "KS", kentucky: "KY",

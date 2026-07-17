@@ -479,32 +479,57 @@ def _geo_tier(o):
     return 3
 
 
+# Experience requirement in the JD — the #1 honesty fix. An entry candidate against a
+# "5+ years" JD is a poor fit no matter how many stack keywords overlap.
+REQ_YEARS_RE = re.compile(r"(\d{1,2})\s*\+?\s*(?:to|-|–|—)?\s*\d{0,2}\s*years?\b", re.I)
+# Seniority signalled in the JD BODY (not just the title).
+SENIOR_JD_RE = re.compile(
+    r"\b(senior|staff|principal|\blead\b|expert|advanced|architect|"
+    r"extensive experience|proven track record|deep expertise|"
+    r"([5-9]|1[0-9])\s*\+?\s*years)\b", re.I)
+
+
+def _req_years(jd):
+    yrs = [int(m) for m in REQ_YEARS_RE.findall(jd) if 0 < int(m) <= 20]
+    return max(yrs) if yrs else 0
+
+
 def _content_score(o):
-    """Deterministic match score (0-100). With a real JD → how much of the candidate's stack
-    it mentions. Without a JD (GitHub-feed rows are title-only) → the title carries the signal.
-    This IS the stored fit — no AI call, so the scan is ~free."""
+    """Deterministic match score (0-100) — an HONEST early-career fit signal, not a keyword count.
+    High scores require a real cloud/DevOps/SRE/support/systems role AND no seniority/years mismatch;
+    the JD's experience requirement and seniority language pull it down (that's why an 'Architect' or
+    '5+ years' role scores low even with heavy keyword overlap). Still $0 — no AI call."""
     title = (o.get("title") or "").lower()
-    jd = (o.get("jd") or "").lower()
-    text = title + " \n " + jd
+    jd = (o.get("jd") or "")
+    jdl = jd.lower()
+    text = title + " \n " + jdl
     hits = sum(1 for k in SKILL_KW if k in text)   # distinct stack terms present
-    if len(jd) >= 200:                             # real JD → content-overlap driven
-        s = min(78, hits * 6)
-    else:                                          # JD-less (feed) → title-driven, cloud-gated
-        if TARGET_TITLE_RE.search(title):
-            s = 64
-        elif CLOUD_HINT_RE.search(title):
-            s = 54
-        else:
-            s = 20     # generic engineer/developer on a bare title → won't clear 50%
-        s += min(16, hits * 5)
-    if ROLE_HINT_RE.search(title):
-        s += 12
-    if JUNIOR_RE.search(title):
-        s += 8
+    strong = bool(TARGET_TITLE_RE.search(title))   # genuine cloud/devops/sre/platform/infra/systems eng
+    cloud = bool(CLOUD_HINT_RE.search(title))
+
+    if len(jdl) >= 200:                            # real JD → content-driven, domain-gated
+        s = min(66, hits * 5)
+        s += 16 if strong else (8 if cloud else -12)  # generic SWE w/ a few infra words: demote
+    else:                                          # title-only feed row → a guess, capped lower
+        s = 56 if strong else (46 if cloud else 14)
+        s += min(12, hits * 4)
+
+    # Seniority / years — the honesty fixes
+    yrs = _req_years(jd)
+    if yrs >= 6:
+        s -= 45
+    elif yrs >= 4:
+        s -= 28
+    elif yrs == 3:
+        s -= 12
     if SENIOR_RE.search(title):
-        s -= 42          # candidate is early-career — push senior/staff/lead below the bar
+        s -= 45          # senior/staff/lead in the title → out of range for an entry candidate
+    elif SENIOR_JD_RE.search(jd):
+        s -= 20          # seniority signalled in the JD body
+    if JUNIOR_RE.search(title):
+        s += 12          # explicit entry / associate / new-grad
     if OFFTARGET_RE.search(title):
-        s -= 40          # frontend/backend/sales/ops-associate/etc. — soft demote
+        s -= 40          # frontend/backend/sales/ops-associate/etc.
     return max(0, min(100, s))
 
 
