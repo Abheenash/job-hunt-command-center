@@ -834,6 +834,7 @@ function opBadges(o) {
   const now = Math.floor(Date.now() / 1000);
   let h = "";
   if (o.capExempt) h += `<span class="op-badge cap" title="Cap-exempt employer — no H-1B lottery">🎓 Cap-exempt</span>`;
+  if (o.staffing) h += `<span class="op-badge stf" title="Likely a staffing / consulting firm — verify before applying">⚠️ Staffing</span>`;
   if (o.firstSeenAt && now - o.firstSeenAt < NEW_WINDOW) h += `<span class="op-badge new">🆕 New</span>`;
   if (o.expireAt && o.expireAt - now < SOON_WINDOW) h += `<span class="op-badge soon" title="Aging out soon — Apply or Track it to keep it">⏳ Leaving soon</span>`;
   return h;

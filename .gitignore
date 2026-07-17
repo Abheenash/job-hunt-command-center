@@ -41,3 +41,8 @@ src/api/*.dist-info/
 # large binary — fetch via scripts/fetch_tectonic_layer.sh
 terraform/layers/tectonic/bin/tectonic
 terraform/layers/tectonic/cache/
+
+# terraform secrets (Adzuna key etc.)
+*.auto.tfvars
+terraform/*.auto.tfvars
+terraform.tfvars

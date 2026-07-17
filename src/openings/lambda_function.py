@@ -80,6 +80,21 @@ CAP_EXEMPT_RE = re.compile(
     r"\b(university|univ\.|college|institute of technology|\binstitute\b|school of|"
     r"hospital|health system|healthcare|medical center|medical college|cancer center|"
     r"\bclinic\b|md anderson|nonprofit|research institute|methodist|baylor college)\b", re.I)
+# Staffing / bodyshop firms (aggregators flood with these) — flagged + down-ranked.
+STAFFING_RE = re.compile(
+    r"\b(staffing|consultanc|consulting|recruit|talent|resourc(es|ing)|it services|"
+    r"infotech|soft\s?tech|placements?|manpower|teksystems|apex systems|cybercoders|"
+    r"technologies\s+llc|solutions\s+llc|systems\s+llc|global soft)\b", re.I)
+STAFFING_SUFFIX_RE = re.compile(r"\b(llc|inc\.?|corp\.?|corporation|group)\s*$", re.I)
+
+
+def _is_staffing(company):
+    c = company or ""
+    if STAFFING_RE.search(c):
+        return True
+    return bool(STAFFING_SUFFIX_RE.search(c)) and _norm(c) not in SPONSOR_FRIENDLY
+
+
 # Strong target titles — used to score JD-less feed rows (they carry no description).
 TARGET_TITLE_RE = re.compile(
     r"(cloud|devops|dev ops|sre|site\s*reliability|reliability|platform|infrastructure|"
@@ -510,6 +525,7 @@ def handler(event, _ctx):
     for o in openings:
         o["oid"] = hashlib.sha1(o["url"].encode()).hexdigest()[:16]
         o["blocked"], o["sponsorRisk"], o["sponsorNote"], o["capExempt"] = _sponsor_verdict(o)
+        o["staffing"] = _is_staffing(o.get("company"))
         o["content"] = _content_score(o)
         o["geo"] = _geo_tier(o)
     # Drop before scoring: confirmed no-sponsorship (user requires sponsor-enabled/likely),
@@ -531,9 +547,12 @@ def handler(event, _ctx):
             dropped["dup"] += 1
             continue
         best[ct] = o
-    # Deterministic scoring: the content/title-overlap score IS the fit (no AI call).
+    # Deterministic scoring: content/title-overlap IS the fit. Aggregator (Adzuna) rows from
+    # unverified companies + staffing/bodyshop firms are down-ranked so they never top the list.
     for o in best.values():
-        o["fit"] = o["content"]
+        pen = 15 if (o["source"] == "adzuna" and o["sponsorRisk"] == "med") else 0
+        pen += 12 if o.get("staffing") else 0
+        o["fit"] = max(0, o["content"] - pen)
         o["reason"] = _reason(o)
 
     # Quality bar (>=50% match) + geo priority (TX -> remote -> rest-of-US); NO count cap.
@@ -553,8 +572,8 @@ def handler(event, _ctx):
         else:
             ttl_days = FRESH_DAYS
         expire = now + ttl_days * 86400
-        rec = {k: o.get(k) for k in ("company", "title", "location", "url", "source", "fit",
-                                     "geo", "reason", "sponsorNote", "sponsorRisk", "capExempt", "postedAt")}
+        rec = {k: o.get(k) for k in ("company", "title", "location", "url", "source", "fit", "geo",
+                                     "reason", "sponsorNote", "sponsorRisk", "capExempt", "staffing", "postedAt")}
         rec["jd"] = (o.get("jd") or "")[:6000]
         rec["scored"] = True  # marks a real weighted-rubric score (vs legacy heuristic rows)
         # Upsert-as-merge: refresh the scan-derived fields and push the freshness clock

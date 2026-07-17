@@ -449,6 +449,7 @@ main { flex: 1; min-width: 0; padding: 1.1rem 1.5rem 2rem; max-width: 1180px; }
 .op-badge.tx { background: #eef7ee; color: #0a7d1b; }
 .op-badge.rem { background: #eef3fb; color: #0653c9; }
 .op-badge.cap { background: #f3ecfb; color: #6d28d9; }
+.op-badge.stf { background: #fdecec; color: #b3261e; }
 .op-sources { border: 1px solid var(--border-soft); border-radius: 12px; background: #fbfcfe; margin: 0 0 1rem; }
 .op-sources > summary { cursor: pointer; padding: .7rem 1rem; font-weight: 700; font-size: .88rem; color: var(--link); list-style: none; }
 .op-sources > summary::-webkit-details-marker { display: none; }
