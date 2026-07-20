@@ -249,7 +249,7 @@ function renderDetail(a) {
       <div><div class="lede">${esc(a.title || "")}</div><h1>${esc(a.company || "—")}</h1>
         <span class="pill ${a.status}">${esc(a.status)}</span>${a.state ? ` <span class="tag st">${esc(a.state)}</span>` : ""}${a.sponsorVerdict ? " " + sponBadge(a) : (a.sponsors ? ` <span class="tag sp">sponsors OPT</span>` : "")}</div>
       <div class="detail-actions">
-        ${a.url ? `<a class="btn" href="${esc(a.url)}" target="_blank" rel="noopener">↗ Posting</a>` : ""}
+        ${a.url ? `<a class="btn" href="${esc(a.url)}" target="_blank" rel="noopener">Posting</a>` : ""}
         <button class="btn" id="d-edit">✎ Edit</button>
         <button class="btn danger" id="d-del">🗑 Delete</button>
       </div>
@@ -862,7 +862,7 @@ function opCard(o, i) {
     </div>
     <div class="op-side">
       <div class="op-fit ${opFitClass(fit)}" title="Match estimate from stack + seniority overlap — always verify the full JD"><b>${fit}%</b><span>fit</span></div>
-      <a class="btn sm" href="${esc(o.url || "#")}" target="_blank" rel="noopener">Apply ↗</a>
+      <a class="btn sm" href="${esc(o.url || "#")}" target="_blank" rel="noopener">Apply</a>
       <button class="btn sm primary op-track" data-id="${esc(o.id || "")}">+ Track</button>
       <button class="btn sm ghost op-dismiss" data-id="${esc(o.id || "")}" title="Not interested — hide this">✕ Not interested</button>
     </div>
@@ -1094,7 +1094,7 @@ const LP_COMPANY_BOARDS = [
   { l: "GitLab", u: 'https://about.gitlab.com/jobs/all-jobs/' },
 ];
 function lpLinks(arr) {
-  return arr.map((x) => `<a class="lp-link" href="${esc(x.u)}" target="_blank" rel="noopener">${esc(x.l)} ↗${x.note ? `<span class="lp-note">${esc(x.note)}</span>` : ""}</a>`).join("");
+  return arr.map((x) => `<a class="lp-link" href="${esc(x.u)}" target="_blank" rel="noopener">${esc(x.l)}${x.note ? `<span class="lp-note">${esc(x.note)}</span>` : ""}</a>`).join("");
 }
 function renderLaunchpad(el) {
   el.innerHTML = `<div class="page-head"><div>
