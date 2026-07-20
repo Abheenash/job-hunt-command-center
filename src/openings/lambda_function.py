@@ -18,10 +18,12 @@ import urllib.request
 import boto3
 
 ddb = boto3.client("dynamodb")
-bedrock = boto3.client("bedrock-runtime")
-BEDROCK_MODEL = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
 TABLE = os.environ["OPENINGS_TABLE"]
 APPS_TABLE = os.environ.get("APPS_TABLE", "")  # to skip roles already in the tracker
+# Durable "don't show me this again" list — company|title signatures the user dismissed,
+# tracked, or already applied to. Lives in its OWN table so purging jobhunt-openings (which
+# we do after scoring/source changes) can never resurrect a rejection. Purge-proof.
+SUPPRESS_TABLE = os.environ.get("SUPPRESS_TABLE", "")
 UA = {"User-Agent": "Mozilla/5.0 (jobhunt openings radar)"}
 # Freshness / auto-expiry. Each scan an opening still appears in pushes its clock
 # forward; once it stops appearing it ages out this many days later. Strong matches
@@ -33,34 +35,10 @@ STRONG_DAYS = 14        # strong, sponsor-friendly matches get more runway
 STRONG_FIT = 75         # fit at/above this = "strong"
 KEEP_MIN_FIT = 50       # QUALITY BAR — only keep openings scoring >= this match %
 MAX_STORE = 500         # effectively uncapped — filters + sort handle the volume
-# TWO-STAGE scoring: (1) free deterministic pre-filter (_content_score) does all the
-# dedup/suppression and narrows ~10k postings to the best few hundred; (2) Bedrock reads
-# each real JD and returns a TRUSTWORTHY match % + sponsorship read (the number that
-# actually agrees with pasting the JD into Claude). Only the top MAX_AI real-JD candidates
-# are AI-scored (cost control ~$8-11/mo); title-only feed rows keep the deterministic score.
-MAX_AI = 120            # Bedrock calls per scan (cost cap)
-AI_PREBAR = 42          # only AI-score candidates whose deterministic pre-score clears this
-# Weighted early-career rubric — the Lambda computes the % from the model's dimension scores.
-FIT_WEIGHTS = {"required": 40, "preferred": 15, "experience": 20, "domain": 15, "ats": 10}
-
-# The candidate profile the JD is matched against (kept in sync with the résumé corpus).
-PROFILE = (
-    "CANDIDATE: entry-level Cloud / DevOps engineer. M.S. Computer & Systems Engineering "
-    "(Dec 2025); AWS Solutions Architect Associate + Cloud Practitioner. ~2 years as a DevOps "
-    "Engineer in AWS cloud operations at HCLTech (ECS Fargate/ALB/RDS/Route53, weekly on-call "
-    "w/ CloudWatch+PagerDuty & RCAs, GitHub Actions CI/CD, Terraform + drift detection, golden-"
-    "signal alarms, Boto3/Lambda/EventBridge/SSM automation, Config/Inspector/GuardDuty/Security "
-    "Hub remediation). Portfolio: serverless zero-knowledge file-share, Amazon EKS platform "
-    "(K8s/HPA/IRSA), secure container pipeline (ECS/WAF/DevSecOps gates), cloud observability "
-    "(CloudWatch/X-Ray/Synthetics/SLOs), cloud-ops recovery lab (EC2/RDS/incident drills). "
-    "Systems foundation: C++ multithreading, POSIX sockets. Skills: AWS, Terraform, Docker, "
-    "Kubernetes, CI/CD, Linux, Python/Boto3, Bash, SQL, networking, observability/SRE, incident "
-    "response. WORK AUTH: F-1 OPT, needs future H-1B sponsorship. Houston TX; relocates anywhere "
-    "in the US, remote welcome. BEST-FIT: Cloud / Cloud Support / DevOps / SRE / Platform / "
-    "Infrastructure / Systems Engineer, Cloud Operations, Solutions Architect (associate/entry). "
-    "WEAK fit: pure frontend/mobile/product-backend, data-science/ML, data engineering, dedicated "
-    "security engineering, embedded/hardware, and ANY senior/staff/principal or 4+ years-required role."
-)
+# Scoring is FREE + deterministic (_content_score below) — NO AI / NO Bedrock, so a scan
+# costs $0. An honest keyword + seniority + years signal narrows the raw postings to the
+# genuine early-career matches; the openings table then ACCUMULATES (new adds on, old rows
+# stay and age out only via their own freshness TTL — never wiped, never capped-away).
 
 # Adzuna job-search AGGREGATOR (free key at developer.adzuna.com) — set both env vars to
 # enable; it pulls listings from many sources (incl. reposts of LinkedIn/Indeed roles).
@@ -457,22 +435,51 @@ def _norm(s):
     return re.sub(r"[^a-z0-9]+", " ", (s or "").lower()).strip()
 
 
+def _sig(company, title):
+    """Stable identity for a posting = normalized company|title. Same job across sources,
+    reposts, or scan-runs collapses to ONE signature — that's what kills the duplicates and
+    makes a 'not interested' click stick even when the same role reappears at a new URL."""
+    return f"{_norm(company)}|{_norm(title)}"
+
+
 def _load_suppressions():
-    """What NOT to re-scrape: (1) opening IDs the user dismissed or tracked (never
-    resurface them), and (2) company+title of everything already in the tracker (don't
-    re-scrape a role you're already applying to)."""
-    ids, applied = set(), set()
+    """Every company|title signature the user never wants to see again — merged from three
+    durable sources so a scan can't resurface them: (1) the purge-proof SUPPRESS_TABLE
+    (dismissed / tracked, written by the API), (2) any still-flagged rows in the openings
+    table (belt-and-suspenders), and (3) everything already in the applications tracker."""
+    sigs = set()
+    if SUPPRESS_TABLE:
+        try:
+            kw = {"TableName": SUPPRESS_TABLE, "ProjectionExpression": "sig"}
+            while True:
+                r = ddb.scan(**kw)
+                for it in r.get("Items", []):
+                    if it.get("sig", {}).get("S"):
+                        sigs.add(it["sig"]["S"])
+                if "LastEvaluatedKey" not in r:
+                    break
+                kw["ExclusiveStartKey"] = r["LastEvaluatedKey"]
+        except Exception as e:  # noqa: BLE001 — suppression is best-effort, never sink the scan
+            print(f"suppress load (table) failed: {type(e).__name__}: {e}")
     try:
-        kw = {"TableName": TABLE, "ProjectionExpression": "openingId, dismissed, tracked"}
+        kw = {"TableName": TABLE, "ProjectionExpression": "sig, body, dismissed, tracked"}
         while True:
             r = ddb.scan(**kw)
             for it in r.get("Items", []):
-                if it.get("dismissed", {}).get("BOOL") or it.get("tracked", {}).get("BOOL"):
-                    ids.add(it["openingId"]["S"])
+                if not (it.get("dismissed", {}).get("BOOL") or it.get("tracked", {}).get("BOOL")):
+                    continue
+                if it.get("sig", {}).get("S"):
+                    sigs.add(it["sig"]["S"])
+                elif it.get("body", {}).get("S"):        # legacy row w/o a sig attr
+                    try:
+                        b = json.loads(it["body"]["S"])
+                        sigs.add(_sig(b.get("company"), b.get("title")))
+                    except Exception:  # noqa: BLE001
+                        pass
             if "LastEvaluatedKey" not in r:
                 break
             kw["ExclusiveStartKey"] = r["LastEvaluatedKey"]
-    except Exception as e:  # noqa: BLE001 — suppression is best-effort, never sink the scan
+    except Exception as e:  # noqa: BLE001
         print(f"suppress load (openings) failed: {type(e).__name__}: {e}")
     if APPS_TABLE:
         try:
@@ -482,7 +489,7 @@ def _load_suppressions():
                 for it in r.get("Items", []):
                     try:
                         a = json.loads(it["body"]["S"])
-                        applied.add((_norm(a.get("company")), _norm(a.get("title"))))
+                        sigs.add(_sig(a.get("company"), a.get("title")))
                     except Exception:  # noqa: BLE001
                         pass
                 if "LastEvaluatedKey" not in r:
@@ -490,7 +497,7 @@ def _load_suppressions():
                 kw["ExclusiveStartKey"] = r["LastEvaluatedKey"]
         except Exception as e:  # noqa: BLE001
             print(f"suppress load (apps) failed: {type(e).__name__}: {e}")
-    return ids, applied
+    return sigs
 
 
 def _geo_tier(o):
@@ -560,39 +567,6 @@ def _content_score(o):
     return max(0, min(100, s))
 
 
-def _ai_score(o):
-    """Bedrock reads the FULL JD and scores early-career fit honestly (the number that agrees
-    with pasting the JD into Claude). Returns {fit, reason, sponsorRisk}. Raises on API error
-    so the caller can fall back to the deterministic score."""
-    prompt = (
-        f"CANDIDATE PROFILE:\n{PROFILE}\n\n"
-        f"JOB POSTING:\nCompany: {o.get('company','')}\nTitle: {o.get('title','')}\n"
-        f"Location: {o.get('location','')}\nFull description:\n{(o.get('jd') or '')[:3500]}\n\n"
-        "Act as a strict ATS + technical recruiter. READ THE FULL JD — titles lie both ways. Score "
-        "how well THIS early-career candidate fits THIS job. Be harsh about seniority and required "
-        "years: a role needing 4+ years, or a senior/staff/principal/architect role, is a POOR fit "
-        "even with heavy keyword overlap. Rate each 0-100:\n"
-        "- required: JD must-have hard skills the candidate evidences\n"
-        "- preferred: nice-to-have coverage\n"
-        "- experience: years/level/scope fit (candidate is ~2 yrs + M.S., entry/associate only)\n"
-        "- domain: is this genuinely cloud/DevOps/SRE/support/systems (vs frontend/backend/ML/data/security)\n"
-        "- ats: share of the JD's key hard terms present in the profile\n"
-        "Reply ONLY compact JSON: {\"required\":int,\"preferred\":int,\"experience\":int,"
-        "\"domain\":int,\"ats\":int,\"reason\":str (one short sentence, name the biggest strength or "
-        "gap),\"sponsorRisk\":\"low\"|\"med\"|\"high\" (high if the JD needs citizenship/clearance or "
-        "excludes visa sponsorship; low if it welcomes new grads / mentions sponsorship)}")
-    payload = {"anthropic_version": "bedrock-2023-05-31", "max_tokens": 260, "temperature": 0.2,
-               "messages": [{"role": "user", "content": [{"type": "text", "text": prompt}]}]}
-    resp = bedrock.invoke_model(modelId=BEDROCK_MODEL, body=json.dumps(payload))
-    txt = json.loads(resp["body"].read())["content"][0]["text"]
-    a, b = txt.find("{"), txt.rfind("}")
-    r = json.loads(txt[a:b + 1])
-    total = sum(max(0, min(100, int(r.get(k, 0) or 0))) * w for k, w in FIT_WEIGHTS.items())
-    fit = round(total / sum(FIT_WEIGHTS.values()))
-    return {"fit": max(0, min(100, fit)), "reason": str(r.get("reason", ""))[:200],
-            "sponsorRisk": r.get("sponsorRisk", "med")}
-
-
 def _reason(o):
     """A short, honest 'why it matched' — stack terms present in the JD, else the sponsor note."""
     text = ((o.get("title") or "") + " " + (o.get("jd") or "")).lower()
@@ -606,59 +580,39 @@ def _reason(o):
 
 def handler(event, _ctx):
     openings, errors = collect()
-    suppressed_ids, applied = _load_suppressions()
+    suppressed_sigs = _load_suppressions()
     for o in openings:
-        o["oid"] = hashlib.sha1(o["url"].encode()).hexdigest()[:16]
+        o["sig"] = _sig(o.get("company"), o.get("title"))       # identity = company|title
+        o["oid"] = hashlib.sha1(o["sig"].encode()).hexdigest()[:16]  # key by sig => auto-dedup
         o["blocked"], o["sponsorRisk"], o["sponsorNote"], o["capExempt"] = _sponsor_verdict(o)
         o["staffing"] = _is_staffing(o.get("company"))
         o["content"] = _content_score(o)
         o["geo"] = _geo_tier(o)
-    # Drop before scoring: confirmed no-sponsorship (user requires sponsor-enabled/likely),
-    # dismissed/tracked openings, roles already in the tracker, and near-duplicate postings
-    # (same company+title across sources) — keeping the best-overlap one of each.
-    best, dropped = {}, {"nosponsor": 0, "suppressed": 0, "applied": 0, "dup": 0}
+    # Drop before storing: confirmed no-sponsorship (user requires sponsor-enabled/likely),
+    # anything the user dismissed / tracked / already applied to (durable sig list), and
+    # near-duplicate postings (same company|title across sources / runs) — keeping the
+    # best-overlap one of each. This is what stops logged + "not interested" + dupes.
+    best, dropped = {}, {"nosponsor": 0, "suppressed": 0, "dup": 0}
     for o in sorted(openings, key=lambda o: -o["content"]):
         if o["blocked"]:
             dropped["nosponsor"] += 1
             continue
-        if o["oid"] in suppressed_ids:
+        if o["sig"] in suppressed_sigs:
             dropped["suppressed"] += 1
             continue
-        ct = (_norm(o.get("company")), _norm(o.get("title")))
-        if ct in applied:
-            dropped["applied"] += 1
-            continue
-        if ct in best:
+        if o["sig"] in best:
             dropped["dup"] += 1
             continue
-        best[ct] = o
-    # Stage 1 — deterministic pre-score (free). This IS the fallback fit. Aggregator/staffing
-    # rows are down-ranked so they never top the AI queue.
+        best[o["sig"]] = o
+    # Deterministic score = the fit (free, no AI). Aggregator/staffing rows are down-ranked.
     for o in best.values():
         pen = 15 if (o["source"] == "adzuna" and o["sponsorRisk"] == "med") else 0
         pen += 12 if o.get("staffing") else 0
-        o["pre"] = max(0, o["content"] - pen)
-        o["fit"] = o["pre"]
+        o["fit"] = max(0, o["content"] - pen)
+        if o.get("capExempt"):
+            o["sponsorRisk"] = "low"        # cap-exempt employer => lottery-proof, sponsor-safe
         o["reason"] = _reason(o)
         o["scoredBy"] = "keyword"
-
-    # Stage 2 — AI: Bedrock reads the FULL JD for the top real-JD candidates and returns a
-    # trustworthy match % (agrees with pasting the JD into Claude). Title-only feed rows have
-    # no JD to read, so they keep the deterministic title score. Bounded by MAX_AI for cost;
-    # on any Bedrock error the deterministic score stands (a blip never empties the tab).
-    ai_pool = [o for o in best.values() if len(o.get("jd") or "") >= 200 and o["pre"] >= AI_PREBAR]
-    ai_pool.sort(key=lambda o: -o["pre"])
-    ai_used = 0
-    for o in ai_pool[:MAX_AI]:
-        try:
-            r = _ai_score(o)
-            o["fit"], o["reason"] = r["fit"], (r["reason"] or o["reason"])
-            o["sponsorRisk"] = "high" if o.get("capExempt") is False and r["sponsorRisk"] == "high" else (
-                "low" if o.get("capExempt") else r["sponsorRisk"])
-            o["scoredBy"] = "ai"
-            ai_used += 1
-        except Exception as e:  # noqa: BLE001 — keep the deterministic score on error
-            errors.append(f"ai:{type(e).__name__}")
 
     # Quality bar (>=50% match) + geo priority (TX -> remote -> rest-of-US); NO count cap.
     keep = [o for o in best.values() if o["fit"] >= KEEP_MIN_FIT]
@@ -681,25 +635,26 @@ def handler(event, _ctx):
                                      "reason", "sponsorNote", "sponsorRisk", "capExempt", "staffing",
                                      "scoredBy", "postedAt")}
         rec["jd"] = (o.get("jd") or "")[:6000]
-        rec["scored"] = True  # marks a real weighted-rubric score (vs legacy heuristic rows)
-        # Upsert-as-merge: refresh the scan-derived fields and push the freshness clock
-        # forward, but NEVER clobber the user's own state (tracked / dismissed) or the
-        # original firstSeenAt. This is what turns a rescan into "add the new, keep the
-        # rest" instead of a wipe-and-replace.
+        rec["scored"] = True  # marks a real scored row (vs legacy heuristic rows)
+        # Upsert-as-merge keyed by the company|title signature: the same job re-seen at a new
+        # URL lands on the SAME row (refreshing its freshness clock) instead of spawning a
+        # duplicate. New jobs add on; old rows stay until their own TTL ages them out. We
+        # NEVER clobber the user's own state (tracked / dismissed) or the original firstSeenAt.
         ddb.update_item(
             TableName=TABLE,
             Key={"openingId": {"S": oid}},
-            UpdateExpression=("SET body = :b, fit = :f, lastSeenAt = :n, "
+            UpdateExpression=("SET body = :b, fit = :f, sig = :s, lastSeenAt = :n, "
                               "expireAt = :e, firstSeenAt = if_not_exists(firstSeenAt, :n)"),
             ExpressionAttributeValues={
                 ":b": {"S": json.dumps(rec)},
                 ":f": {"N": str(fit)},
+                ":s": {"S": o["sig"]},
                 ":n": {"N": str(now)},
                 ":e": {"N": str(expire)},
             },
         )
         stored += 1
-    print(f"openings scan: collected={len(openings)} deduped={len(best)} ai_scored={ai_used} "
+    print(f"openings scan: collected={len(openings)} deduped={len(best)} "
           f"stored={stored} dropped={dropped} errors={errors[:12]}")
-    return {"collected": len(openings), "aiScored": ai_used, "stored": stored,
+    return {"collected": len(openings), "stored": stored,
             "dropped": dropped, "errors": errors[:12]}

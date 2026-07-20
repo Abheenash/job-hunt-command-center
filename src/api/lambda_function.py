@@ -99,6 +99,7 @@ APPS = os.environ["APPS_TABLE"]
 EVENTS = os.environ["EVENTS_TABLE"]
 BUCKET = os.environ["DOCS_BUCKET"]
 OPENINGS = os.environ.get("OPENINGS_TABLE", "")
+SUPPRESS = os.environ.get("SUPPRESS_TABLE", "")  # durable "not interested" / logged list (purge-proof)
 SCAN_FN = os.environ.get("OPENINGS_SCAN_FN", "")
 OPENINGS_MIN_FIT = 50   # quality bar for what the radar shows (mirrors the scanner)
 OPENINGS_MAX = 500      # effectively uncapped — filters/sort handle the volume
@@ -410,19 +411,46 @@ def _norm(s):
     return re.sub(r"[^a-z0-9]+", " ", (s or "").lower()).strip()
 
 
+def _sig(company, title):
+    """Stable identity for a posting = normalized company|title (mirrors the scanner)."""
+    return f"{_norm(company)}|{_norm(title)}"
+
+
+def _load_suppressed_sigs():
+    """Durable 'don't show me again' signatures from the purge-proof suppress table."""
+    sigs = set()
+    if not SUPPRESS:
+        return sigs
+    try:
+        kwargs = {"TableName": SUPPRESS, "ProjectionExpression": "sig"}
+        while True:
+            r = ddb.scan(**kwargs)
+            for it in r.get("Items", []):
+                if it.get("sig", {}).get("S"):
+                    sigs.add(it["sig"]["S"])
+            if "LastEvaluatedKey" not in r:
+                break
+            kwargs["ExclusiveStartKey"] = r["LastEvaluatedKey"]
+    except Exception as e:  # noqa: BLE001 — hiding is best-effort, never block the list
+        print(f"suppress sigs lookup failed: {type(e).__name__}: {e}")
+    return sigs
+
+
 def list_openings(user):
     """Live openings, strongest fit first. Merged/persistent across scans — we hide
     only what shouldn't show: ones the user tracked or dismissed, ones past their
     freshness window (expireAt), and ones already in the tracker (same company+title)."""
     now = int(time.time())
-    # Already-logged applications -> hide the matching openings.
-    applied = set()
+    # Hide, by durable company|title signature: everything already logged in the tracker AND
+    # everything on the purge-proof suppress list (dismissed / tracked). Signature-based so a
+    # repost at a new URL, or a slightly different row, is still hidden.
+    hidden = _load_suppressed_sigs()
     try:
         for a in _user_apps(user):
-            applied.add((_norm(a.get("company")), _norm(a.get("title"))))
+            hidden.add(_sig(a.get("company"), a.get("title")))
     except Exception as e:  # noqa: BLE001 — hiding is best-effort, never block the list
         print(f"list_openings apps lookup failed: {type(e).__name__}: {e}")
-    items, kwargs = [], {"TableName": OPENINGS}
+    by_sig, kwargs = {}, {"TableName": OPENINGS}
     while True:
         r = ddb.scan(**kwargs)
         for it in r.get("Items", []):
@@ -436,16 +464,22 @@ def list_openings(user):
                 continue
             if o.get("fit", 0) < OPENINGS_MIN_FIT:   # quality bar (also enforced at scan time)
                 continue
-            if (_norm(o.get("company")), _norm(o.get("title"))) in applied:
+            sig = it.get("sig", {}).get("S") or _sig(o.get("company"), o.get("title"))
+            if sig in hidden:
                 continue
             o["id"] = it["openingId"]["S"]
             o["firstSeenAt"] = int(it.get("firstSeenAt", {}).get("N") or 0)
             o["lastSeenAt"] = int((it.get("lastSeenAt") or it.get("scannedAt") or {}).get("N") or 0)
             o["expireAt"] = exp
-            items.append(o)
-        if "LastEvaluatedKey" not in r or len(items) > 400:
+            # Collapse any duplicate rows for the same job (legacy URL-keyed rows) — keep the
+            # freshest, so each posting shows exactly once.
+            prev = by_sig.get(sig)
+            if prev is None or o["lastSeenAt"] > prev["lastSeenAt"]:
+                by_sig[sig] = o
+        if "LastEvaluatedKey" not in r or len(by_sig) > 600:
             break
         kwargs["ExclusiveStartKey"] = r["LastEvaluatedKey"]
+    items = list(by_sig.values())
     # Geo tier first (0=TX, 1=remote, 2=rest-of-US, 3=unknown), then fit — matches the
     # scanner's ordering so TX surfaces first, then remote, then the rest of the US.
     items.sort(key=lambda o: (o.get("geo", 2), -o.get("fit", 0)))
@@ -454,24 +488,43 @@ def list_openings(user):
 
 
 def mark_opening(opening_id, field, extra=None):
-    """Flag an opening tracked/dismissed so it drops out of the list AND future scans
-    skip it entirely. Keep the row as a long-lived tombstone (the scanner reads these
-    flags to know what NOT to re-scrape), so a dismissed job won't come back."""
+    """Flag an opening tracked/dismissed so it drops out of the list AND future scans skip it.
+    Two layers: (1) a flag on the row (belt), and (2) a durable company|title signature written
+    to the purge-proof SUPPRESS table (suspenders) — so a dismissed job never comes back even
+    after we purge the openings table or the same role is reposted at a new URL."""
     if field not in ("tracked", "dismissed"):
         return _r(400, {"error": "bad field"})
+    now = int(time.time())
     expr = "SET #f = :t, expireAt = :e"
     names = {"#f": field}
-    vals = {":t": {"BOOL": True}, ":e": {"N": str(int(time.time()) + 120 * 86400)}}
+    vals = {":t": {"BOOL": True}, ":e": {"N": str(now + 120 * 86400)}}
     if extra and extra.get("appId"):
         expr += ", trackedAppId = :a"
         vals[":a"] = {"S": str(extra["appId"])}
     try:
+        # Read the row first so we know its signature (company|title) to suppress durably.
+        row = ddb.get_item(TableName=OPENINGS, Key={"openingId": {"S": opening_id}}).get("Item")
         ddb.update_item(TableName=OPENINGS, Key={"openingId": {"S": opening_id}},
                         UpdateExpression=expr, ExpressionAttributeNames=names,
                         ExpressionAttributeValues=vals)
     except Exception as e:  # noqa: BLE001
         print(f"mark_opening failed: {type(e).__name__}: {e}")
         return _r(502, {"error": "couldn't update the opening"})
+    if SUPPRESS and row:
+        sig = (row.get("sig", {}) or {}).get("S")
+        if not sig:
+            try:
+                b = json.loads(row["body"]["S"])
+                sig = _sig(b.get("company"), b.get("title"))
+            except Exception:  # noqa: BLE001
+                sig = None
+        if sig:
+            try:
+                ddb.put_item(TableName=SUPPRESS, Item={
+                    "sig": {"S": sig}, "reason": {"S": field}, "at": {"N": str(now)},
+                    "expireAt": {"N": str(now + 400 * 86400)}})   # long-lived tombstone
+            except Exception as e:  # noqa: BLE001 — flag on the row still hides it near-term
+                print(f"suppress write failed: {type(e).__name__}: {e}")
     return _r(200, {"ok": True})
 
 

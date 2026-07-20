@@ -100,8 +100,13 @@ data "aws_iam_policy_document" "api" {
   # Openings Radar: read the scanned openings, flag tracked/dismissed, + rescan.
   statement {
     sid       = "OpeningsRead"
-    actions   = ["dynamodb:Scan", "dynamodb:UpdateItem"]
+    actions   = ["dynamodb:Scan", "dynamodb:GetItem", "dynamodb:UpdateItem"]
     resources = [aws_dynamodb_table.openings.arn]
+  }
+  statement {
+    sid       = "SuppressReadWrite" # durable "not interested" / logged list
+    actions   = ["dynamodb:Scan", "dynamodb:GetItem", "dynamodb:PutItem"]
+    resources = [aws_dynamodb_table.openings_suppress.arn]
   }
   statement {
     sid       = "OpeningsScan"
@@ -131,6 +136,7 @@ resource "aws_lambda_function" "api" {
       EVENTS_TABLE     = aws_dynamodb_table.email_events.name
       DOCS_BUCKET      = aws_s3_bucket.docs.bucket
       OPENINGS_TABLE   = aws_dynamodb_table.openings.name
+      SUPPRESS_TABLE   = aws_dynamodb_table.openings_suppress.name
       OPENINGS_SCAN_FN = aws_lambda_function.openings_scan.function_name
     }
   }

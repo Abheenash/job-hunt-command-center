@@ -1,7 +1,8 @@
 # --- Openings Radar -----------------------------------------------------------
 # A daily scanner Lambda pulls entry-level cloud/DevOps/SRE/support roles from
 # target companies' documented ATS JSON APIs (Greenhouse/Ashby/Workday/amazon.jobs),
-# flags visa sponsorship, scores fit with Bedrock, and stores the top matches.
+# flags visa sponsorship, scores fit with a FREE deterministic keyword+seniority
+# signal (no AI / no per-scan cost), dedups by company|title, and stores the matches.
 # The API reads this table (GET /openings) and can trigger an on-demand rescan.
 
 resource "aws_dynamodb_table" "openings" {
@@ -20,6 +21,27 @@ resource "aws_dynamodb_table" "openings" {
   }
 
   point_in_time_recovery { enabled = true }
+  tags = local.tags
+}
+
+# Purge-proof suppression list: company|title signatures the user dismissed / tracked /
+# already applied to. Lives in its OWN table so purging the openings table (which we do
+# after scoring/source changes) can never resurrect a rejected posting.
+resource "aws_dynamodb_table" "openings_suppress" {
+  name         = "${local.name}-openings-suppress"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "sig"
+
+  attribute {
+    name = "sig"
+    type = "S"
+  }
+
+  ttl {
+    attribute_name = "expireAt"
+    enabled        = true
+  }
+
   tags = local.tags
 }
 
@@ -50,14 +72,10 @@ data "aws_iam_policy_document" "openings_scan" {
     actions   = ["dynamodb:Scan"]
     resources = [aws_dynamodb_table.applications.arn]
   }
-  # Stage-2 AI scoring: Bedrock reads each top JD for a trustworthy match % (~120 calls/scan).
   statement {
-    sid     = "BedrockScore"
-    actions = ["bedrock:InvokeModel"]
-    resources = [
-      "arn:aws:bedrock:*::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0",
-      "arn:aws:bedrock:*:${local.acct}:inference-profile/us.anthropic.claude-haiku-4-5-20251001-v1:0",
-    ]
+    sid       = "SuppressRead" # skip dismissed / tracked signatures (purge-proof)
+    actions   = ["dynamodb:Scan"]
+    resources = [aws_dynamodb_table.openings_suppress.arn]
   }
 }
 
@@ -74,13 +92,14 @@ resource "aws_lambda_function" "openings_scan" {
   handler          = "lambda_function.handler"
   filename         = data.archive_file.openings_scan.output_path
   source_code_hash = data.archive_file.openings_scan.output_base64sha256
-  timeout          = 600  # ~60 ATS fetches (large boards) + bounded Bedrock scoring
+  timeout          = 600  # ~60 ATS fetches (large boards) + dedup/scoring (all deterministic)
   memory_size      = 1024 # more CPU = faster fetch/parse of many large boards
   tags             = local.tags
   environment {
     variables = {
       OPENINGS_TABLE = aws_dynamodb_table.openings.name
       APPS_TABLE     = aws_dynamodb_table.applications.name
+      SUPPRESS_TABLE = aws_dynamodb_table.openings_suppress.name
       # Adzuna aggregator is opt-in — set these to a free key from developer.adzuna.com
       ADZUNA_APP_ID  = var.adzuna_app_id
       ADZUNA_APP_KEY = var.adzuna_app_key

@@ -851,7 +851,7 @@ function opCard(o, i) {
       <div class="op-tags">${opRisk(o)}</div>
     </div>
     <div class="op-side">
-      <div class="op-fit ${opFitClass(fit)}" title="${o.scoredBy === "ai" ? "AI read the full JD — trustworthy" : "Keyword estimate — verify"}"><b>${fit}%</b><span>${o.scoredBy === "ai" ? "🤖 fit" : "fit"}</span></div>
+      <div class="op-fit ${opFitClass(fit)}" title="Match estimate from stack + seniority overlap — always verify the full JD"><b>${fit}%</b><span>fit</span></div>
       <a class="btn sm" href="${esc(o.url || "#")}" target="_blank" rel="noopener">Apply ↗</a>
       <button class="btn sm primary op-track" data-id="${esc(o.id || "")}">+ Track</button>
       <button class="btn sm ghost op-dismiss" data-id="${esc(o.id || "")}" title="Not interested — hide this">✕ Not interested</button>
@@ -941,7 +941,6 @@ function opMatchesFilters(o) {
   const now = Math.floor(Date.now() / 1000);
   if (f.onlyNew && !(o.firstSeenAt && now - o.firstSeenAt < NEW_WINDOW)) return false;
   if (f.onlySoon && !(o.expireAt && o.expireAt - now < SOON_WINDOW)) return false;
-  if (f.onlyAI && o.scoredBy !== "ai") return false;
   if (f.onlyCap && !o.capExempt) return false;
   if (f.hideStaffing && o.staffing) return false;
   return true;
@@ -982,12 +981,11 @@ function opChipBar() {
   const n = {
     onlyNew: OPENINGS.filter((o) => o.firstSeenAt && now - o.firstSeenAt < NEW_WINDOW).length,
     onlySoon: OPENINGS.filter((o) => o.expireAt && o.expireAt - now < SOON_WINDOW).length,
-    onlyAI: OPENINGS.filter((o) => o.scoredBy === "ai").length,
     onlyCap: OPENINGS.filter((o) => o.capExempt).length,
     hideStaffing: OPENINGS.filter((o) => o.staffing).length,
   };
   const chip = (key, label) => `<button class="op-chip${f[key] ? " on" : ""}" data-chip="${key}">${label}${n[key] ? ` <b>${n[key]}</b>` : ""}</button>`;
-  return chip("onlyNew", "🆕 New") + chip("onlySoon", "⏳ Leaving soon") + chip("onlyAI", "🤖 AI-verified")
+  return chip("onlyNew", "🆕 New") + chip("onlySoon", "⏳ Leaving soon")
     + chip("onlyCap", "🎓 Cap-exempt") + chip("hideStaffing", "🚫 Hide staffing");
 }
 function wireOpCardButtons() {
@@ -1032,7 +1030,7 @@ function renderOpenings() {
   meta.push(`${OPENINGS.length} live`);
   if (nNew) meta.push(`<b class="op-c new">${nNew} new</b>`);
   if (nSoon) meta.push(`<b class="op-c soon">${nSoon} leaving soon</b>`);
-  el.innerHTML = `<div class="page-head"><div><h1>🔎 Openings</h1><p class="sub">Entry-level cloud · DevOps · SRE · support roles scanned across sponsor-friendly companies, pulled daily from ATS boards (Greenhouse/Ashby/Amazon/Workday/Lever), the GitHub 🛂 sponsorship feeds, and the Adzuna aggregator — then <b>every confirmed no-sponsorship role is dropped</b> (only sponsor-enabled or likely-to-sponsor kept), scored by stack overlap, and ranked <b>Texas → remote → rest of US</b> by match %. Only ≥50% matches kept. The top roles are <b>🤖 AI-verified</b> (Claude read the full JD — trustworthy %); the rest are keyword estimates. Filter by source · state · sponsorship · match %, or the quick chips (🆕 New · ⏳ Leaving soon · 🤖 AI-verified · 🎓 Cap-exempt · 🚫 Hide staffing).</p>
+  el.innerHTML = `<div class="page-head"><div><h1>🔎 Openings</h1><p class="sub">Entry-level cloud · DevOps · SRE · support roles scanned across sponsor-friendly companies, pulled daily from ATS boards (Greenhouse/Ashby/Amazon/Workday/Lever), the GitHub 🛂 sponsorship feeds, and the Adzuna aggregator — then <b>every confirmed no-sponsorship role is dropped</b> (only sponsor-enabled or likely-to-sponsor kept), scored by stack + seniority overlap, and ranked <b>Texas → remote → rest of US</b> by match %. Only ≥50% matches kept. Anything you log to the tracker or mark <b>Not interested</b> never comes back, and duplicates are collapsed to one. Filter by source · state · sponsorship · match %, or the quick chips (🆕 New · ⏳ Leaving soon · 🎓 Cap-exempt · 🚫 Hide staffing).</p>
       <p class="op-meta">${meta.join(" · ")}</p></div>
       <div class="head-actions"><button id="op-rescan" class="btn">↻ Rescan</button></div></div>
     ${opSourcesPanel()}
