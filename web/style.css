@@ -486,3 +486,30 @@ input.op-f { flex: 1 1 220px; min-width: 180px; }
 .op-meta .op-c.new { color: #0653c9; }
 .op-meta .op-c.soon { color: #8a5a00; }
 @media (max-width: 640px) { .op-card { flex-wrap: wrap; } .op-side { width: 100%; flex-direction: row; flex-wrap: wrap; } .op-fit { flex: 1; } }
+
+/* --- Job-Search Launchpad (Openings tab) ---------------------------------- */
+.lp-wrap { display: flex; flex-direction: column; gap: 1.6rem; }
+.lp-sec { }
+.lp-sec > h3 { margin: 0 0 .7rem; font-size: 1.05rem; }
+.lp-muted { color: var(--muted); font-weight: 400; font-size: .85rem; }
+.lp-chips { display: flex; flex-wrap: wrap; gap: .4rem; margin-bottom: .8rem; }
+.lp-chip { border: 1px solid var(--border); background: var(--card); color: var(--text);
+  border-radius: 999px; padding: .32rem .8rem; font-size: .82rem; cursor: pointer; transition: .12s; }
+.lp-chip:hover { border-color: var(--orange-2); color: var(--orange-2); }
+.lp-copyrow { display: flex; gap: .5rem; align-items: stretch; margin-bottom: .5rem; flex-wrap: wrap; }
+.lp-code { flex: 1; min-width: 240px; background: var(--nav); color: #e7edf3; border-radius: 8px;
+  padding: .55rem .7rem; font-size: .78rem; overflow-x: auto; white-space: nowrap; }
+.lp-hint { color: var(--muted); font-size: .84rem; margin: .5rem 0 0; }
+.lp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: .9rem; }
+.lp-card { border: 1px solid var(--border-soft); border-radius: 12px; background: var(--card); padding: 1rem; }
+.lp-card-h { display: flex; align-items: center; justify-content: space-between; gap: .5rem; margin-bottom: .35rem; }
+.lp-tag { font-size: .7rem; color: var(--orange-2); background: #fff4e5; border-radius: 999px; padding: .12rem .5rem; white-space: nowrap; }
+.lp-tip { color: var(--muted); font-size: .82rem; margin: 0 0 .7rem; }
+.lp-links { display: flex; flex-direction: column; gap: .4rem; }
+.lp-links.wide { gap: .55rem; }
+.lp-links.grid3 { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: .5rem; }
+.lp-link { display: block; border: 1px solid var(--border-soft); border-radius: 8px; padding: .5rem .7rem;
+  color: var(--link); font-size: .86rem; text-decoration: none; background: #fafbfc; transition: .12s; }
+.lp-link:hover { border-color: var(--link); background: #f2f8fd; }
+.lp-note { display: block; color: var(--muted); font-size: .76rem; margin-top: .18rem; }
+@media (max-width: 640px) { .lp-code { min-width: 0; } }

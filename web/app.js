@@ -807,7 +807,17 @@ function relAgo(ts) {
   if (s < 86400) return Math.floor(s / 3600) + "h ago";
   return Math.floor(s / 86400) + "d ago";
 }
+// --- Openings mode -----------------------------------------------------------
+// "launchpad" = curated search links + keywords (no scraping — the daily scanner
+// Lambda is also disabled in AWS). Flip to "scan" to restore the auto-scraped list
+// (the scan/list/dedup/suppression code below is all retained, just bypassed).
+const OPENINGS_MODE = "launchpad";
 async function loadOpenings() {
+  if (OPENINGS_MODE === "launchpad") {
+    const c0 = $("#openings-count"); if (c0) c0.textContent = "";
+    if (currentView === "openings" && $("#openings-view") && !$("#openings-view").hidden) renderOpenings();
+    return;
+  }
   try { OPENINGS = (await api("GET", "/openings")).openings || []; } catch (_e) { OPENINGS = []; }
   const c = $("#openings-count"); if (c) c.textContent = OPENINGS.length;
   if (currentView === "openings" && $("#openings-view") && !$("#openings-view").hidden) renderOpenings();
@@ -1019,8 +1029,129 @@ function updateOpMeta() {
   if (nSoon) meta.push(`<b class="op-c soon">${nSoon} leaving soon</b>`);
   const el = $("#openings-view .op-meta"); if (el) el.innerHTML = meta.join(" · ");
 }
+// --- Launchpad: curated search links + keywords (replaces scraping) ----------
+const LP_TITLES = ["Cloud Engineer", "DevOps Engineer", "Site Reliability Engineer", "Cloud Support Engineer",
+  "Platform Engineer", "Infrastructure Engineer", "Cloud Operations", "Associate Solutions Architect"];
+const LP_BOOLEAN = '("Cloud Engineer" OR "DevOps Engineer" OR "Site Reliability Engineer" OR "Cloud Support Engineer" OR "Platform Engineer") AND (AWS OR Terraform OR Kubernetes) AND (Associate OR Junior OR "Entry Level" OR "New Grad")';
+const LP_SPONSOR = '-"no sponsorship" -"US citizen" -"security clearance" -"must be authorized to work" -"clearance required"';
+const LP_PLATFORMS = [
+  { name: "LinkedIn Jobs", tag: "best coverage", tip: "Filter Experience = Entry level + Associate, Date = Past week, sort Most recent. Paste the boolean string into the keyword box.", links: [
+    { l: "Cloud / DevOps · Texas · entry · past week", u: 'https://www.linkedin.com/jobs/search/?keywords=%22Cloud%20Engineer%22%20OR%20%22DevOps%20Engineer%22%20OR%20%22Site%20Reliability%22&location=Texas&f_E=2%2C3&f_TPR=r604800&sortBy=DD' },
+    { l: "Cloud / DevOps · Remote US · entry · past week", u: 'https://www.linkedin.com/jobs/search/?keywords=%22Cloud%20Engineer%22%20OR%20%22DevOps%20Engineer%22%20OR%20%22Site%20Reliability%22&location=United%20States&f_WT=2&f_E=2%2C3&f_TPR=r604800&sortBy=DD' },
+    { l: "Cloud Support Engineer · US · past week", u: 'https://www.linkedin.com/jobs/search/?keywords=%22Cloud%20Support%20Engineer%22&location=United%20States&f_E=2%2C3&f_TPR=r604800&sortBy=DD' },
+  ] },
+  { name: "Indeed", tag: "high volume", tip: "Add the Entry-Level filter chip and set 'Last 7 days'. Watch for staffing reposts.", links: [
+    { l: "Cloud Engineer · Texas · last 7 days", u: 'https://www.indeed.com/jobs?q=cloud+engineer&l=Texas&fromage=7&sort=date&sc=0kf%3Aexplvl(ENTRY_LEVEL)%3B' },
+    { l: "DevOps Engineer · Remote · last 7 days", u: 'https://www.indeed.com/jobs?q=devops+engineer&l=Remote&fromage=7&sort=date&sc=0kf%3Aexplvl(ENTRY_LEVEL)%3B' },
+  ] },
+  { name: "Dice", tag: "tech-only, great for cloud", tip: "Tech-focused board; strong for AWS/DevOps roles. Set Posted = last 7 days.", links: [
+    { l: "DevOps / Cloud · Texas · last 7 days", u: 'https://www.dice.com/jobs?q=DevOps%20Engineer&location=Texas,%20USA&filters.postedDate=SEVEN&filters.employmentType=FULLTIME' },
+    { l: "Cloud Engineer · Remote · last 7 days", u: 'https://www.dice.com/jobs?q=Cloud%20Engineer&filters.postedDate=SEVEN&filters.isRemote=true' },
+  ] },
+  { name: "Amazon / AWS Jobs", tag: "OPT-friendly pipeline", tip: "Cloud Support Associate/Engineer is a classic new-grad + sponsorship pipeline into AWS.", links: [
+    { l: "Cloud Support Engineer · US", u: 'https://www.amazon.jobs/en/search?base_query=cloud+support+engineer&loc_query=United+States' },
+    { l: "Cloud Support Associate · US", u: 'https://www.amazon.jobs/en/search?base_query=cloud+support+associate&loc_query=United+States' },
+  ] },
+  { name: "Google Jobs", tag: "aggregates everything", tip: "Pulls from most boards at once; use the 'Date posted' + 'Remote' chips on the results panel.", links: [
+    { l: "Cloud engineer jobs · Texas", u: 'https://www.google.com/search?q=cloud+engineer+jobs+in+texas&ibp=htl;jobs' },
+    { l: "DevOps engineer · remote", u: 'https://www.google.com/search?q=remote+devops+engineer+jobs&ibp=htl;jobs' },
+  ] },
+  { name: "Built In", tag: "startups that sponsor", tip: "Many venture-backed cos here sponsor. Filter to Entry level + Remote or your city.", links: [
+    { l: "Cloud engineer roles", u: 'https://builtin.com/jobs?search=cloud%20engineer' },
+    { l: "DevOps roles", u: 'https://builtin.com/jobs?search=devops%20engineer' },
+  ] },
+  { name: "Wellfound (AngelList)", tag: "startup-friendly to visas", tip: "Startups; many are open to sponsorship. Set the role + United States.", links: [
+    { l: "DevOps · US", u: 'https://wellfound.com/role/l/devops-engineer/united-states' },
+    { l: "Cloud · US", u: 'https://wellfound.com/role/l/cloud-engineer/united-states' },
+  ] },
+];
+const LP_SPONSOR_TOOLS = [
+  { l: "h1bdata.info — who sponsored this exact title (+ salaries)", u: 'https://h1bdata.info/index.php?em=&job=cloud+engineer&city=&year=All+Years', note: "Search a job title → every employer that filed an LCA for it. Your fastest 'do they sponsor?' check." },
+  { l: "MyVisaJobs — top H-1B sponsors & company reports", u: 'https://www.myvisajobs.com/', note: "Rankings + per-company sponsorship history." },
+  { l: "H1BGrader — sponsor search + approval rates", u: 'https://www.h1bgrader.com/', note: "Approval odds and filing volume per employer." },
+  { l: "USCIS H-1B Employer Data Hub (official)", u: 'https://www.uscis.gov/tools/reports-and-studies/h-1b-employer-data-hub', note: "Ground-truth government data on approvals/denials by employer." },
+  { l: "GitHub · SimplifyJobs New-Grad Positions (🛂 tagged)", u: 'https://github.com/SimplifyJobs/New-Grad-Positions', note: "Live new-grad list with sponsorship flags." },
+  { l: "GitHub · vanshb03 New-Grad-2027 (🛂 tagged)", u: 'https://github.com/vanshb03/New-Grad-2027', note: "Second curated new-grad feed, updated daily." },
+];
+const LP_CAPEXEMPT = [
+  { l: "University of Houston", u: 'https://uh.wd1.myworkdayjobs.com/UHCareers' },
+  { l: "Rice University", u: 'https://jobs.rice.edu/' },
+  { l: "UT Austin", u: 'https://jobs.utexas.edu/' },
+  { l: "Texas A&M", u: 'https://jobs.tamu.edu/' },
+  { l: "MD Anderson Cancer Center", u: 'https://careers.mdanderson.org/' },
+  { l: "Houston Methodist", u: 'https://jobs.houstonmethodist.org/' },
+  { l: "Baylor College of Medicine", u: 'https://jobs.bcm.edu/' },
+  { l: "Memorial Hermann", u: 'https://careers.memorialhermann.org/' },
+];
+const LP_COMPANY_BOARDS = [
+  { l: "HashiCorp (makers of Terraform)", u: 'https://www.hashicorp.com/careers/open-positions' },
+  { l: "Datadog", u: 'https://careers.datadoghq.com/' },
+  { l: "Cloudflare", u: 'https://www.cloudflare.com/careers/jobs/' },
+  { l: "Stripe", u: 'https://stripe.com/jobs/search' },
+  { l: "Snowflake", u: 'https://careers.snowflake.com/us/en' },
+  { l: "MongoDB", u: 'https://www.mongodb.com/company/careers/teams/engineering' },
+  { l: "Confluent", u: 'https://careers.confluent.io/' },
+  { l: "GitLab", u: 'https://about.gitlab.com/jobs/all-jobs/' },
+];
+function lpLinks(arr) {
+  return arr.map((x) => `<a class="lp-link" href="${esc(x.u)}" target="_blank" rel="noopener">${esc(x.l)} ↗${x.note ? `<span class="lp-note">${esc(x.note)}</span>` : ""}</a>`).join("");
+}
+function renderLaunchpad(el) {
+  el.innerHTML = `<div class="page-head"><div>
+      <h1>🚀 Job-Search Launchpad</h1>
+      <p class="sub">Curated deep-links into every job platform — pre-filtered for <b>your</b> profile (entry/associate cloud · DevOps · SRE, Texas + remote, recent postings) — plus visa-sponsorship research tools and H-1B lottery-proof employers. Open a link, it lands you on a live, filtered search. Auto-scraping is off (it wasted effort on dupes); this is faster and always fresh.</p>
+    </div></div>
+    <div class="container"><div class="container-body lp-wrap">
+
+      <section class="lp-sec">
+        <h3>🔑 Your search terms</h3>
+        <div class="lp-chips">${LP_TITLES.map((t) => `<button class="lp-chip" data-copytext="${esc(t)}" title="Click to copy">${esc(t)}</button>`).join("")}</div>
+        <div class="lp-copyrow"><code class="lp-code" id="lp-bool">${esc(LP_BOOLEAN)}</code><button class="btn sm" id="lp-copy-bool">Copy boolean</button></div>
+        <div class="lp-copyrow"><code class="lp-code" id="lp-spon">${esc(LP_SPONSOR)}</code><button class="btn sm" id="lp-copy-spon">Copy sponsor filter</button></div>
+        <p class="lp-hint">Paste the boolean into LinkedIn/Indeed keyword boxes. Append the sponsor filter to hide roles that exclude visas. Click any title chip to copy it.</p>
+      </section>
+
+      <section class="lp-sec">
+        <h3>🌐 Job platforms <span class="lp-muted">— pre-filtered searches</span></h3>
+        <div class="lp-grid">
+          ${LP_PLATFORMS.map((p) => `<div class="lp-card">
+            <div class="lp-card-h"><b>${esc(p.name)}</b><span class="lp-tag">${esc(p.tag)}</span></div>
+            <p class="lp-tip">${esc(p.tip)}</p>
+            <div class="lp-links">${lpLinks(p.links)}</div>
+          </div>`).join("")}
+        </div>
+      </section>
+
+      <section class="lp-sec">
+        <h3>🛂 Visa-sponsorship research <span class="lp-muted">— check before you apply</span></h3>
+        <div class="lp-links wide">${lpLinks(LP_SPONSOR_TOOLS)}</div>
+      </section>
+
+      <section class="lp-sec">
+        <h3>🎓 Cap-exempt employers <span class="lp-muted">— H-1B lottery-proof (Texas)</span></h3>
+        <p class="lp-hint">Universities & nonprofit hospitals are <b>exempt from the H-1B lottery</b> — they can file for you any time of year. Huge advantage on OPT. Browse their IT / cloud / systems roles directly.</p>
+        <div class="lp-links grid3">${lpLinks(LP_CAPEXEMPT)}</div>
+      </section>
+
+      <section class="lp-sec">
+        <h3>🏢 Sponsor-friendly company boards <span class="lp-muted">— strong fit for your stack</span></h3>
+        <div class="lp-links grid3">${lpLinks(LP_COMPANY_BOARDS)}</div>
+      </section>
+
+    </div></div>`;
+  const copy = (text, btn, done) => {
+    const write = navigator.clipboard && navigator.clipboard.writeText
+      ? navigator.clipboard.writeText(text) : Promise.reject();
+    write.then(() => { const o = btn.textContent; btn.textContent = done || "Copied ✓"; setTimeout(() => (btn.textContent = o), 1200); })
+      .catch(() => { window.prompt("Copy:", text); });
+  };
+  const cb = $("#lp-copy-bool"); if (cb) cb.onclick = () => copy(LP_BOOLEAN, cb);
+  const cs = $("#lp-copy-spon"); if (cs) cs.onclick = () => copy(LP_SPONSOR, cs);
+  $$("#openings-view .lp-chip").forEach((c) => (c.onclick = () => copy(c.dataset.copytext, c, "Copied ✓")));
+}
 function renderOpenings() {
   const el = $("#openings-view"); if (!el) return;
+  if (OPENINGS_MODE === "launchpad") return renderLaunchpad(el);
   const now = Math.floor(Date.now() / 1000);
   const nNew = OPENINGS.filter((o) => o.firstSeenAt && now - o.firstSeenAt < NEW_WINDOW).length;
   const nSoon = OPENINGS.filter((o) => o.expireAt && o.expireAt - now < SOON_WINDOW).length;

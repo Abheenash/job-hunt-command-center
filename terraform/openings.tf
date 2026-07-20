@@ -110,7 +110,11 @@ resource "aws_lambda_function" "openings_scan" {
 resource "aws_cloudwatch_event_rule" "openings_scan" {
   name                = "${local.name}-openings-scan"
   schedule_expression = "cron(0 13 * * ? *)" # once daily at 13:00 UTC (cost control)
-  tags                = local.tags
+  # DISABLED: the Openings tab is now a curated launchpad (web/app.js OPENINGS_MODE="launchpad"),
+  # not a scraped list. The scanner Lambda + all its code are retained — flip this to "ENABLED"
+  # (and OPENINGS_MODE back to "scan") to resume daily auto-scraping.
+  state = "DISABLED"
+  tags  = local.tags
 }
 
 resource "aws_cloudwatch_event_target" "openings_scan" {
