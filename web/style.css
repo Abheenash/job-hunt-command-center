@@ -546,3 +546,16 @@ input.op-f { flex: 1 1 220px; min-width: 180px; }
 .due.ro { background: #fff4e5; color: var(--orange-2); }
 .due.ro.over { background: #fdece9; color: var(--danger); }
 @media (prefers-color-scheme: dark) { .ro-msg { background: #1b222b; } }
+
+/* --- Reach-out: multiple people (editor rows + detail items) --------------- */
+.reachouts { border: 1px dashed var(--border); border-radius: 10px; padding: .7rem .8rem; }
+.ro-row { display: grid; grid-template-columns: 1fr 1.4fr 1.2fr auto auto; gap: .4rem; align-items: start; margin-bottom: .6rem; }
+.ro-row input, .ro-row textarea { width: 100%; padding: .4rem .5rem; border: 1px solid var(--border); border-radius: 7px; font: inherit; }
+.ro-row .ro-msg-in { grid-column: 1 / -1; resize: vertical; }
+.ro-del { border: 1px solid var(--border); background: var(--card); border-radius: 7px; cursor: pointer; color: var(--muted); padding: 0 .55rem; }
+.ro-del:hover { border-color: var(--danger); color: var(--danger); }
+.ro-item { border: 1px solid var(--border-soft); border-radius: 8px; padding: .6rem .7rem; margin-bottom: .55rem; }
+.ro-item.over { border-color: var(--danger); }
+.ro-item.soon { border-color: var(--orange-2); }
+.ro-count { background: var(--orange-2); color: #fff; border-radius: 999px; font-size: .7rem; font-weight: 600; padding: .05rem .45rem; margin-left: .35rem; vertical-align: middle; }
+@media (max-width: 720px) { .ro-row { grid-template-columns: 1fr 1fr; } .ro-row .ro-link, .ro-row .ro-email, .ro-row .ro-date { grid-column: auto; } }

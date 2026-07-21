@@ -80,10 +80,8 @@
           <label class="side-check"><input type="checkbox" id="f-opt" /> OPT / sponsors only</label>
           <select id="f-reach" class="side-input" title="Filter by reach-out status">
             <option value="">All reach-outs</option>
-            <option value="notdone">📣 Not reached out</option>
-            <option value="done">✅ Reached out</option>
-            <option value="replied">💬 Replied</option>
-            <option value="secured">★ Referral secured</option>
+            <option value="none">📣 No reach-outs yet</option>
+            <option value="has">✅ Has reach-outs</option>
             <option value="due">⏰ Reach-out due</option>
             <option value="overdue">⚠ Overdue reach-out</option>
           </select>
@@ -178,16 +176,14 @@
             <label>Source<select name="source"><option value="">—</option><option>LinkedIn</option><option>Referral</option><option>Company site</option><option>Indeed</option><option>Dice</option><option>Other</option></select></label>
             <label>Posting URL<input name="url" type="url" placeholder="https://…" /></label>
             <label class="check2"><input type="checkbox" name="sponsors" /> Sponsors / accepts OPT</label>
-            <label>Contact name<input name="contactName" placeholder="Recruiter / referrer / UH alum" /></label>
-            <label>Contact email<input name="contactEmail" type="email" /></label>
-            <label class="full">Contact profile / LinkedIn URL<input name="contactLink" type="url" placeholder="https://www.linkedin.com/in/…" /></label>
-            <label>Referred by<input name="referredBy" placeholder="Name / alumni contact" /></label>
-            <label>Reach-out status<select name="referralStatus"><option value="">To reach out</option><option>Reached out</option><option>Replied</option><option>Referral secured</option></select></label>
-            <label>Reach out by<input name="reachOutDue" type="date" /></label>
             <label>Next action<input name="nextAction" placeholder="Follow up, prep, …" /></label>
             <label>Next action due<input name="nextDue" type="date" /></label>
             <label>Tags (comma-sep)<input name="tags" placeholder="aws, remote, devops" /></label>
-            <label class="full">Reach-out message<textarea name="reachOutMsg" rows="4" placeholder="Paste a template from the Openings tab and fill the [brackets], or write your own outreach message…"></textarea></label>
+            <div class="full reachouts">
+              <div class="cf-head"><label>📣 Reach-outs</label><button type="button" id="ro-add" class="btn sm">+ Add person</button></div>
+              <div id="ro-rows"></div>
+              <p class="filenote">Everyone you plan to reach out to for a referral — name, LinkedIn URL, email, a message, and a due date. Add as many people as you want.</p>
+            </div>
             <label class="full">Required skills<input name="requiredSkills" placeholder="auto-filled from the JD" /></label>
             <label class="full">Nice to have<input name="niceToHave" placeholder="auto-filled from the JD" /></label>
             <div class="full customfields">

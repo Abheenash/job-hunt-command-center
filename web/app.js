@@ -8,8 +8,7 @@ const LS = { id: "jhcc_id", access: "jhcc_access", refresh: "jhcc_refresh", emai
 const STATUSES = ["applied", "screen", "interview", "offer", "rejected", "ghosted"];
 const US_STATES = ["Remote", "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY", "DC"];
 const FORM_FIELDS = ["company", "title", "dateApplied", "status", "priority", "location", "state", "workMode",
-  "seniority", "salary", "source", "url", "contactName", "contactEmail", "contactLink", "referredBy", "referralStatus",
-  "reachOutDue", "reachOutMsg", "nextAction", "nextDue", "tags", "requiredSkills", "niceToHave"];
+  "seniority", "salary", "source", "url", "nextAction", "nextDue", "tags", "requiredSkills", "niceToHave"];
 // Local YYYY-MM-DD (viewer's own timezone) — NOT toISOString(), which is UTC and rolls the
 // date over in the evening for US viewers.
 const _ymd = (d) => { const p = (n) => String(n).padStart(2, "0"); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`; };
@@ -169,7 +168,8 @@ function ini(a) { return esc((a.company || "?").trim().charAt(0).toUpperCase() |
 
 function card(a) {
   const due = a.nextDue ? `<span class="due">⏰ ${esc(a.nextAction || "next")} · ${a.nextDue}</span>` : "";
-  const roDue = (a.reachOutDue && !reachOutDone(a)) ? `<span class="due ro ${a.reachOutDue < today() ? "over" : ""}">📣 reach out ${a.reachOutDue < today() ? "overdue" : "· " + a.reachOutDue}</span>` : "";
+  const rod = reachDue(a); const roOver = reachOverdue(a);
+  const roDue = rod.length ? `<span class="due ro ${roOver ? "over" : ""}">📣 ${roOver ? "reach-out overdue" : rod.length + " reach-out" + (rod.length > 1 ? "s" : "") + " due"}</span>` : "";
   const spons = a.sponsorVerdict ? sponBadge(a) : (a.sponsors ? `<span class="tag sp">sponsors</span>` : "");
   const ref = a.referralStatus === "Referral secured" ? `<span class="tag rf">★ referral</span>` : (a.referralStatus === "Reached out" ? `<span class="tag rf out">↗ outreach</span>` : "");
   const st = a.state ? `<span class="tag st">${esc(a.state)}</span>` : "";
@@ -214,7 +214,7 @@ function setView(v) {
 function todoItems() {
   const tasks = [];
   APPS.forEach((a) => {
-    if (a.reachOutDue && !reachOutDone(a)) tasks.push({ a, when: a.reachOutDue, kind: "reachout", label: a.contactName ? `Reach out to ${a.contactName}` : "Reach out" });
+    getReachOuts(a).forEach((r) => { if (r.due) tasks.push({ a, when: r.due, kind: "reachout", label: r.name ? `Reach out to ${r.name}` : "Reach out" }); });
     if (a.nextAction || a.nextDue) tasks.push({ a, when: a.nextDue || "", kind: "followup", label: a.nextAction || "Follow up" });
   });
   return tasks.sort((x, y) => (x.when || "9999").localeCompare(y.when || "9999"));
@@ -242,57 +242,53 @@ function renderTodo() {
 function kvRow(label, val) { return val ? `<div><span>${label}</span><b>${esc(val)}</b></div>` : ""; }
 
 // ---------- reach out (referral / outreach per application) -----------------
-function reachOutDone(a) { return ["Reached out", "Replied", "Referral secured"].includes(a.referralStatus || ""); }
+// A reach-out is a person to contact for a referral: { name, link, email, msg, due }.
+// Stored as an array on the application so you can add as many people as you want.
+function getReachOuts(a) {
+  if (Array.isArray(a.reachOuts)) return a.reachOuts;
+  // migrate a legacy single-contact application into one entry
+  if (a.contactName || a.contactLink || a.contactEmail || a.reachOutMsg || a.reachOutDue) {
+    return [{ name: a.contactName || "", link: a.contactLink || "", email: a.contactEmail || "", msg: a.reachOutMsg || "", due: a.reachOutDue || "" }];
+  }
+  return [];
+}
+function reachDue(a) { return getReachOuts(a).filter((r) => r.due); }
+function reachOverdue(a) { const t = today(); return getReachOuts(a).some((r) => r.due && r.due < t); }
 function matchesReach(a) {
+  const ros = getReachOuts(a);
   switch (filterReach) {
-    case "notdone": return !reachOutDone(a);                                             // haven't contacted anyone yet
-    case "done": return reachOutDone(a);                                                 // reached out / replied / secured
-    case "replied": return a.referralStatus === "Replied";
-    case "secured": return a.referralStatus === "Referral secured";
-    case "due": return !!a.reachOutDue && !reachOutDone(a);                              // has a pending reach-out date
-    case "overdue": return !!a.reachOutDue && !reachOutDone(a) && a.reachOutDue < today();
+    case "has": return ros.length > 0;                    // reached out / contacts logged
+    case "none": return ros.length === 0;                 // no one added yet
+    case "due": return reachDue(a).length > 0;            // someone has a due date
+    case "overdue": return reachOverdue(a);               // a due date has passed
     default: return true;
   }
 }
-function addDays(ymd, n) { const d = new Date((ymd || today()) + "T00:00:00"); d.setDate(d.getDate() + n); return _ymd(d); }
 function reachOutCard(a) {
   const t = today();
-  const has = a.contactName || a.contactLink || a.contactEmail || a.reachOutMsg || a.reachOutDue;
-  if (!has) {
+  const ros = getReachOuts(a);
+  if (!ros.length) {
     return `<div class="container ro-card"><div class="container-head">📣 Reach out</div><div class="container-body">
-      <p class="muted">No outreach yet. A referral converts ~5–10× better than a cold app — add a contact + message here (grab a template from the <b>Openings</b> tab), then set a reach-out date.</p>
-      <button class="btn primary" id="ro-edit">＋ Add reach-out</button></div></div>`;
+      <p class="muted">No one added yet. A referral converts far better than a cold app — add the people to contact for this role (grab a message from the <b>Openings</b> tab).</p>
+      <button class="btn primary" id="ro-edit">＋ Add people</button></div></div>`;
   }
-  const done = reachOutDone(a);
-  const overdue = a.reachOutDue && !done && a.reachOutDue < t;
-  const soon = a.reachOutDue && !done && a.reachOutDue === t;
-  const dueTxt = a.reachOutDue ? (done ? `sent` : overdue ? `⚠ overdue · ${a.reachOutDue}` : soon ? `due today` : `by ${a.reachOutDue}`) : "";
-  const links = [
-    a.contactLink ? `<a class="btn sm" href="${esc(a.contactLink)}" target="_blank" rel="noopener">Open profile</a>` : "",
-    a.contactEmail ? `<a class="btn sm" href="mailto:${esc(a.contactEmail)}">✉ Email</a>` : "",
-  ].filter(Boolean).join(" ");
-  const status = a.referralStatus ? `<span class="ro-status ${done ? "done" : ""}">${esc(a.referralStatus)}</span>` : `<span class="ro-status todo">To reach out</span>`;
-  const actions = [
-    a.reachOutMsg ? `<button class="btn sm" id="ro-copy">Copy message</button>` : "",
-    !done ? `<button class="btn sm primary" id="ro-done">✓ Mark reached out</button>` : "",
-    `<button class="btn sm" id="ro-edit">✎ Edit</button>`,
-  ].filter(Boolean).join(" ");
-  return `<div class="container ro-card ${overdue ? "over" : soon ? "soon" : ""}">
-    <div class="container-head">📣 Reach out ${status}</div>
-    <div class="container-body">
-      ${(a.contactName || dueTxt) ? `<div class="ro-who">${a.contactName ? `<b>${esc(a.contactName)}</b>` : `<span class="muted">contact TBD</span>`}${dueTxt ? ` <span class="ro-due ${overdue ? "over" : soon ? "soon" : ""}">${esc(dueTxt)}</span>` : ""}</div>` : ""}
+  const items = ros.map((r, i) => {
+    const overdue = r.due && r.due < t, soon = r.due && r.due === t;
+    const dueTxt = r.due ? (overdue ? `⚠ overdue · ${r.due}` : soon ? `due today` : `by ${r.due}`) : "";
+    const links = [
+      r.link ? `<a class="btn sm" href="${esc(r.link)}" target="_blank" rel="noopener">Open profile</a>` : "",
+      r.email ? `<a class="btn sm" href="mailto:${esc(r.email)}">✉ Email</a>` : "",
+    ].filter(Boolean).join(" ");
+    return `<div class="ro-item ${overdue ? "over" : soon ? "soon" : ""}">
+      <div class="ro-who">${r.name ? `<b>${esc(r.name)}</b>` : `<span class="muted">(no name)</span>`}${dueTxt ? ` <span class="ro-due ${overdue ? "over" : soon ? "soon" : ""}">${esc(dueTxt)}</span>` : ""}</div>
       ${links ? `<div class="ro-links">${links}</div>` : ""}
-      ${a.reachOutMsg ? `<pre class="ro-msg">${esc(a.reachOutMsg)}</pre>` : `<p class="muted">No message yet — add one via Edit, or copy a template from the Openings tab.</p>`}
-      <div class="ro-actions">${actions}</div>
+      ${r.msg ? `<pre class="ro-msg">${esc(r.msg)}</pre><div class="ro-actions"><button class="btn sm ro-copy" data-i="${i}">Copy message</button></div>` : ""}
+    </div>`;
+  }).join("");
+  return `<div class="container ro-card"><div class="container-head">📣 Reach out <span class="ro-count">${ros.length}</span></div>
+    <div class="container-body">${items}
+      <div class="ro-actions" style="margin-top:.6rem"><button class="btn sm" id="ro-edit">✎ Edit people</button></div>
     </div></div>`;
-}
-async function markReachedOut(id) {
-  const a = APPS.find((x) => x.appId === id); if (!a) return;
-  a.referralStatus = "Reached out";
-  a.timeline = (a.timeline || []).concat([{ at: Math.floor(Date.now() / 1000), event: `Reached out${a.contactName ? ` to ${a.contactName}` : ""}` }]);
-  if (!a.nextDue) { a.nextAction = a.nextAction || "Follow up on outreach"; a.nextDue = addDays(today(), 6); } // auto-schedule a follow-up
-  renderDetail(a); renderList(); if (currentView === "todo") renderTodo();
-  try { await api("PUT", "/applications/" + encodeURIComponent(id), { referralStatus: a.referralStatus, timeline: a.timeline, nextAction: a.nextAction, nextDue: a.nextDue }); } catch (_e) { /* optimistic */ }
 }
 
 function renderDetail(a) {
@@ -342,8 +338,6 @@ function renderDetail(a) {
           ${kvRow("Seniority", a.seniority)}
           ${kvRow("Salary", a.salary)}
           ${kvRow("Source", a.source)}
-          ${kvRow("Referred by", a.referredBy)}
-          ${kvRow("Referral", a.referralStatus)}
           ${kvRow("Sponsors OPT", a.sponsors ? "yes" : "")}
           ${kvRow("Next action", a.nextAction)}
           ${kvRow("Due", a.nextDue)}
@@ -355,11 +349,12 @@ function renderDetail(a) {
       </div>
     </div>`;
 
-  const roCopy = $("#ro-copy"); if (roCopy) roCopy.onclick = () => {
-    const w = navigator.clipboard && navigator.clipboard.writeText ? navigator.clipboard.writeText(a.reachOutMsg || "") : Promise.reject();
-    w.then(() => { roCopy.textContent = "Copied ✓"; setTimeout(() => (roCopy.textContent = "Copy message"), 1200); }).catch(() => window.prompt("Copy:", a.reachOutMsg || ""));
-  };
-  const roDone = $("#ro-done"); if (roDone) roDone.onclick = () => markReachedOut(a.appId);
+  const ros = getReachOuts(a);
+  $$("#detail-view .ro-copy").forEach((b) => (b.onclick = () => {
+    const msg = (ros[+b.dataset.i] || {}).msg || "";
+    const w = navigator.clipboard && navigator.clipboard.writeText ? navigator.clipboard.writeText(msg) : Promise.reject();
+    w.then(() => { b.textContent = "Copied ✓"; setTimeout(() => (b.textContent = "Copy message"), 1200); }).catch(() => window.prompt("Copy:", msg));
+  }));
   const roEdit = $("#ro-edit"); if (roEdit) roEdit.onclick = () => openEdit(a.appId);
 
   $("#d-back").onclick = closeDetail;
@@ -524,6 +519,7 @@ function openEdit(id, prefill) {
   $("#spon-out").hidden = true; $("#spon-out").innerHTML = "";
   $("#jd").value = a.jd || "";
   populateCf(a.attributes);
+  populateRo(getReachOuts(a));
   lastGen = null; $("#gen-out").hidden = true; $("#gen-out").innerHTML = ""; $("#gen-cover").checked = false;
   FORM_FIELDS.forEach((k) => { if (f[k] != null) f[k].value = a[k] || ""; });
   if (!f.status.value) f.status.value = "applied";
@@ -694,6 +690,31 @@ function collectCf() {
   return $$("#cf-rows .cf-row").map((r) => ({ key: r.querySelector(".cf-k").value.trim(), value: r.querySelector(".cf-v").value.trim() })).filter((a) => a.key);
 }
 
+// ---------- reach-out people (repeatable: name, LinkedIn, email, message, due) --
+function roRow(e = {}) {
+  const row = document.createElement("div");
+  row.className = "ro-row";
+  row.innerHTML = `
+    <input class="ro-name" placeholder="Name" value="${esc(e.name || "")}" />
+    <input class="ro-link" type="url" placeholder="LinkedIn profile URL" value="${esc(e.link || "")}" />
+    <input class="ro-email" type="email" placeholder="Email" value="${esc(e.email || "")}" />
+    <input class="ro-date" type="date" title="Reach out by" value="${esc(e.due || "")}" />
+    <button type="button" class="ro-del" title="Remove person">✕</button>
+    <textarea class="ro-msg-in" rows="3" placeholder="Reach-out message (paste a template from the Openings tab)…">${esc(e.msg || "")}</textarea>`;
+  row.querySelector(".ro-del").onclick = () => row.remove();
+  return row;
+}
+function populateRo(list) { const box = $("#ro-rows"); box.innerHTML = ""; (list || []).forEach((e) => box.appendChild(roRow(e))); }
+function collectRo() {
+  return $$("#ro-rows .ro-row").map((r) => ({
+    name: r.querySelector(".ro-name").value.trim(),
+    link: r.querySelector(".ro-link").value.trim(),
+    email: r.querySelector(".ro-email").value.trim(),
+    due: r.querySelector(".ro-date").value,
+    msg: r.querySelector(".ro-msg-in").value.trim(),
+  })).filter((e) => e.name || e.link || e.email || e.msg || e.due);
+}
+
 async function saveApp(e) {
   e.preventDefault();
   const f = $("#app-form");
@@ -709,6 +730,7 @@ async function saveApp(e) {
   FORM_FIELDS.forEach((k) => (rec[k] = f[k].value.trim ? f[k].value.trim() : f[k].value));
   rec.sponsors = f.sponsors.checked;
   rec.attributes = collectCf();
+  rec.reachOuts = collectRo();
   if (lastGen) {
     if (lastGen.matchPercent != null) { rec.matchPercent = lastGen.matchPercent; rec.matchedAt = Math.floor(Date.now() / 1000); }
     if (lastGen.snapshotKey) rec.generatedResumeKey = lastGen.snapshotKey;
@@ -1402,6 +1424,7 @@ $("#autofill").onclick = autofill;
 $("#check-spon").onclick = checkSponsorEdit;
 $("#gen-resume").onclick = generateResume;
 $("#cf-add").onclick = () => $("#cf-rows").appendChild(cfRow());
+$("#ro-add").onclick = () => $("#ro-rows").appendChild(roRow());
 // remember the model choice across generations (so Haiku stays picked for bulk)
 (function () {
   const el = $("#gen-model"), k = "jhcc_gen-model", saved = localStorage.getItem(k);
