@@ -10,7 +10,10 @@ const US_STATES = ["Remote", "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL
 const FORM_FIELDS = ["company", "title", "dateApplied", "status", "priority", "location", "state", "workMode",
   "seniority", "salary", "source", "url", "contactName", "contactEmail", "referredBy", "referralStatus",
   "nextAction", "nextDue", "tags", "requiredSkills", "niceToHave"];
-const fmtDate = (epoch) => { try { return new Date(epoch * 1000).toISOString().slice(0, 10); } catch (_e) { return ""; } };
+// Local YYYY-MM-DD (viewer's own timezone) — NOT toISOString(), which is UTC and rolls the
+// date over in the evening for US viewers.
+const _ymd = (d) => { const p = (n) => String(n).padStart(2, "0"); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`; };
+const fmtDate = (epoch) => { try { return _ymd(new Date(epoch * 1000)); } catch (_e) { return ""; } };
 
 let APPS = [];
 let editing = null, currentDetail = null;
@@ -464,7 +467,7 @@ function openEdit(id, prefill) {
   showOnly("#edit-view"); window.scrollTo(0, 0);
 }
 function cancelEdit() { const id = editing; editing = null; pendingOpeningId = null; if (id) openDetail(id); else showOnly("#list-view"); }
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => _ymd(new Date());  // local date (viewer's timezone), not UTC
 
 function renderDocs(docs) {
   $("#docs").innerHTML = docs.length
