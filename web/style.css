@@ -513,3 +513,16 @@ input.op-f { flex: 1 1 220px; min-width: 180px; }
 .lp-link:hover { border-color: var(--link); background: #f2f8fd; }
 .lp-note { display: block; color: var(--muted); font-size: .76rem; margin-top: .18rem; }
 @media (max-width: 640px) { .lp-code { min-width: 0; } }
+
+/* --- Launchpad: strategy callout + outreach templates --------------------- */
+.lp-callout { border: 1px solid var(--orange); background: #fff8ee; border-left: 4px solid var(--orange-2);
+  border-radius: 10px; padding: .9rem 1.1rem; }
+.lp-callout h3 { margin: 0 0 .35rem; font-size: 1.02rem; }
+.lp-callout p { margin: 0; font-size: .9rem; color: var(--text); line-height: 1.5; }
+.lp-tpls { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: .9rem; }
+.lp-tpl { border: 1px solid var(--border-soft); border-radius: 12px; background: var(--card); padding: 1rem; }
+.lp-tpl-h { display: flex; align-items: center; justify-content: space-between; gap: .5rem; margin-bottom: .3rem; }
+.lp-tpl-body { white-space: pre-wrap; word-break: break-word; background: #f7f9fb; border: 1px solid var(--border-soft);
+  border-radius: 8px; padding: .6rem .7rem; margin: .5rem 0 0; font-size: .82rem; line-height: 1.5;
+  font-family: inherit; color: var(--text); }
+@media (prefers-color-scheme: dark) { .lp-callout { background: #2a2113; } .lp-tpl-body { background: #1b222b; } }

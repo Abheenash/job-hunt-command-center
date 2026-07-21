@@ -1087,14 +1087,46 @@ const LP_CAPEXEMPT = [
   { l: "Memorial Hermann", u: 'https://careers.memorialhermann.org/' },
 ];
 const LP_COMPANY_BOARDS = [
+  { l: "Red Hat (heavy H-1B sponsor)", u: 'https://redhat.wd5.myworkdayjobs.com/jobs' },
+  { l: "IBM", u: 'https://www.ibm.com/careers/search' },
+  { l: "NVIDIA", u: 'https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite' },
   { l: "HashiCorp (makers of Terraform)", u: 'https://www.hashicorp.com/careers/open-positions' },
   { l: "Datadog", u: 'https://careers.datadoghq.com/' },
   { l: "Cloudflare", u: 'https://www.cloudflare.com/careers/jobs/' },
-  { l: "Stripe", u: 'https://stripe.com/jobs/search' },
+  { l: "Confluent", u: 'https://careers.confluent.io/' },
+  { l: "Akamai", u: 'https://jobs.akamai.com/en/sites/CX_1/jobs' },
+  { l: "DigitalOcean", u: 'https://careers.digitalocean.com/' },
+  { l: "Fidelity (Westlake TX)", u: 'https://jobs.fidelity.com/' },
   { l: "Snowflake", u: 'https://careers.snowflake.com/us/en' },
   { l: "MongoDB", u: 'https://www.mongodb.com/company/careers/teams/engineering' },
-  { l: "Confluent", u: 'https://careers.confluent.io/' },
+  { l: "Stripe", u: 'https://stripe.com/jobs/search' },
   { l: "GitLab", u: 'https://about.gitlab.com/jobs/all-jobs/' },
+];
+// Sponsor-first aggregators + startup boards — where you HAVEN'T been (beyond LinkedIn/Indeed/Dice).
+const LP_AGGREGATORS = [
+  { l: "hiring.cafe — has a real ‘Visa Sponsorship’ filter", u: 'https://hiring.cafe/', note: "Aggregates thousands of company-direct posts. Set the Visa Sponsorship filter + your titles — best signal-to-noise for your situation." },
+  { l: "Simplify — new-grad roles WITH visa sponsorship", u: 'https://simplify.jobs/l/New-Grad-Roles-with-Visa-Sponsorship', note: "Curated sponsor-tagged list; the Simplify extension also autofills applications." },
+  { l: "Work at a Startup (Y Combinator)", u: 'https://www.workatastartup.com/companies?roles=eng', note: "YC startups — they sponsor more readily and you often reach the founder directly. Less competition than big boards." },
+  { l: "a16z portfolio jobs", u: 'https://portfoliojobs.a16z.com/jobs', note: "One search across a16z-backed startups — many sponsor early hires." },
+  { l: "Levels.fyi jobs", u: 'https://www.levels.fyi/jobs', note: "Great filters + salary transparency; strong for cloud/infra roles." },
+];
+// University of Houston — your warmest, most underused channel (alumni + cap-exempt + fall recruiting).
+const LP_UH = [
+  { l: "UH Handshake — student/alumni job board + fall recruiting", u: 'https://uh.joinhandshake.com/', note: "Log in with your UH account. Fall new-grad recruiting opens now — employers here WANT to hire UH grads." },
+  { l: "Find UH alumni at any company (LinkedIn)", u: 'https://www.linkedin.com/school/university-of-houston/people/', note: "Open this, then type a company in the search box → see UH grads who work there → message them (template below). Warmest referral path you have." },
+  { l: "UH University Career Services", u: 'https://www.uh.edu/ucs/', note: "Résumé reviews, career fairs, employer connections." },
+  { l: "UH International Student Services (OPT/visa job help)", u: 'https://www.uh.edu/oiss/', note: "OPT/CPT guidance + international-student career resources; ask if UH gives you Interstride." },
+];
+// Copy-paste outreach templates — turn "who do I even message" into pasting.
+const LP_TEMPLATES = [
+  { t: "UH alumni referral ask (LinkedIn DM)", tip: "Warmest message you can send. Find the person via the UH alumni link above.",
+    body: "Hi [Name] — fellow UH Cougar here (M.S. Computer & Systems Engineering, '25). I saw you're at [Company] and I just applied for the [Role] role. Your team's work caught my eye. Would you be open to referring me, or sharing any insight? Happy to send my résumé + a two-line summary to make it easy. Either way — go Coogs, and thanks for reading!" },
+  { t: "Referral ask (anyone at the company)", tip: "For a company where you don't have a UH connection — find an engineer on the team.",
+    body: "Hi [Name] — I recently applied for the [Role] position at [Company] and your work on [team/area] stood out to me. I'm an AWS-certified Cloud/DevOps engineer (M.S. + ~2 yrs experience, live projects at abheenash.com). If you're open to it, a referral would mean a lot — I can send my résumé and a short blurb so it takes you 30 seconds. Completely understand if not. Thanks!" },
+  { t: "Recruiter follow-up (5–7 days after applying)", tip: "Reaffirm interest and give them an easy next step. Send once, not repeatedly.",
+    body: "Hi [Name], I applied for the [Role] role at [Company] on [date] and wanted to reaffirm my strong interest. It's a close match for my background — AWS Solutions Architect–Associate, production on-call + Terraform/CI-CD at HCLTech, and a portfolio of live AWS projects (abheenash.com). Is there anything I can send to help move my application forward? Thanks for your time." },
+  { t: "LinkedIn connection note (≤300 characters)", tip: "Short, since LinkedIn caps connection notes. Personalize [Company]/[Role].",
+    body: "Hi [Name] — fellow UH grad and cloud/DevOps engineer here. I just applied to [Company] for [Role] and would love to connect and learn a bit about your team. Thanks!" },
 ];
 function lpLinks(arr) {
   return arr.map((x) => `<a class="lp-link" href="${esc(x.u)}" target="_blank" rel="noopener">${esc(x.l)}${x.note ? `<span class="lp-note">${esc(x.note)}</span>` : ""}</a>`).join("");
@@ -1102,9 +1134,14 @@ function lpLinks(arr) {
 function renderLaunchpad(el) {
   el.innerHTML = `<div class="page-head"><div>
       <h1>🚀 Job-Search Launchpad</h1>
-      <p class="sub">Curated deep-links into every job platform — pre-filtered for <b>your</b> profile (entry/associate cloud · DevOps · SRE, Texas + remote, recent postings) — plus visa-sponsorship research tools and H-1B lottery-proof employers. Open a link, it lands you on a live, filtered search. Auto-scraping is off (it wasted effort on dupes); this is faster and always fresh.</p>
+      <p class="sub">Curated deep-links into every job platform — pre-filtered for <b>your</b> profile (entry/associate cloud · DevOps · SRE, Texas + remote, recent postings) — plus sponsor-first boards, your UH alumni channel, target companies, and copy-paste outreach templates. Open a link, it lands you on a live search. No scraping; always fresh.</p>
     </div></div>
     <div class="container"><div class="container-body lp-wrap">
+
+      <section class="lp-callout">
+        <h3>⚡ The move now: outreach beats screening</h3>
+        <p>You've applied at real volume — but every one is a <b>cold</b> application, and for a sponsorship candidate those convert worst. A <b>referral is worth ~5–10 cold applications.</b> For each role you apply to: find <b>one person</b> at that company (a <b>UH alum is warmest</b>), send a template below, and set a <b>5–7 day follow-up</b>. Fewer new applications, more human contact on the ones you have.</p>
+      </section>
 
       <section class="lp-sec">
         <h3>🔑 Your search terms</h3>
@@ -1121,6 +1158,29 @@ function renderLaunchpad(el) {
             <div class="lp-card-h"><b>${esc(p.name)}</b><span class="lp-tag">${esc(p.tag)}</span></div>
             <p class="lp-tip">${esc(p.tip)}</p>
             <div class="lp-links">${lpLinks(p.links)}</div>
+          </div>`).join("")}
+        </div>
+      </section>
+
+      <section class="lp-sec">
+        <h3>🚀 Sponsor-first &amp; startup boards <span class="lp-muted">— where you haven't been yet</span></h3>
+        <p class="lp-hint">Beyond LinkedIn/Indeed/Dice. These either filter for visa sponsorship or surface startups (which sponsor more readily and have less competition).</p>
+        <div class="lp-links wide">${lpLinks(LP_AGGREGATORS)}</div>
+      </section>
+
+      <section class="lp-sec">
+        <h3>🎓 University of Houston <span class="lp-muted">— your warmest, most underused channel</span></h3>
+        <p class="lp-hint">Alumni referrals + cap-exempt hiring + fall recruiting (opening now). Start here before another cold board.</p>
+        <div class="lp-links wide">${lpLinks(LP_UH)}</div>
+      </section>
+
+      <section class="lp-sec">
+        <h3>✉️ Outreach templates <span class="lp-muted">— copy, fill the [brackets], send</span></h3>
+        <div class="lp-tpls">
+          ${LP_TEMPLATES.map((t, i) => `<div class="lp-tpl">
+            <div class="lp-tpl-h"><b>${esc(t.t)}</b><button class="btn sm lp-tpl-copy" data-i="${i}">Copy</button></div>
+            <p class="lp-tip">${esc(t.tip)}</p>
+            <pre class="lp-tpl-body">${esc(t.body)}</pre>
           </div>`).join("")}
         </div>
       </section>
@@ -1151,6 +1211,7 @@ function renderLaunchpad(el) {
   const cb = $("#lp-copy-bool"); if (cb) cb.onclick = () => copy(LP_BOOLEAN, cb);
   const cs = $("#lp-copy-spon"); if (cs) cs.onclick = () => copy(LP_SPONSOR, cs);
   $$("#openings-view .lp-chip").forEach((c) => (c.onclick = () => copy(c.dataset.copytext, c, "Copied ✓")));
+  $$("#openings-view .lp-tpl-copy").forEach((b) => (b.onclick = () => copy(LP_TEMPLATES[+b.dataset.i].body, b)));
 }
 function renderOpenings() {
   const el = $("#openings-view"); if (!el) return;
