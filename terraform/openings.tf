@@ -42,6 +42,7 @@ resource "aws_dynamodb_table" "openings_suppress" {
     enabled        = true
   }
 
+  point_in_time_recovery { enabled = true } # matches the other tables (CKV_AWS_28)
   tags = local.tags
 }
 
