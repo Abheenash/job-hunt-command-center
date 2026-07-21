@@ -8,8 +8,8 @@ const LS = { id: "jhcc_id", access: "jhcc_access", refresh: "jhcc_refresh", emai
 const STATUSES = ["applied", "screen", "interview", "offer", "rejected", "ghosted"];
 const US_STATES = ["Remote", "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY", "DC"];
 const FORM_FIELDS = ["company", "title", "dateApplied", "status", "priority", "location", "state", "workMode",
-  "seniority", "salary", "source", "url", "contactName", "contactEmail", "referredBy", "referralStatus",
-  "nextAction", "nextDue", "tags", "requiredSkills", "niceToHave"];
+  "seniority", "salary", "source", "url", "contactName", "contactEmail", "contactLink", "referredBy", "referralStatus",
+  "reachOutDue", "reachOutMsg", "nextAction", "nextDue", "tags", "requiredSkills", "niceToHave"];
 // Local YYYY-MM-DD (viewer's own timezone) — NOT toISOString(), which is UTC and rolls the
 // date over in the evening for US viewers.
 const _ymd = (d) => { const p = (n) => String(n).padStart(2, "0"); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`; };
@@ -169,6 +169,7 @@ function ini(a) { return esc((a.company || "?").trim().charAt(0).toUpperCase() |
 
 function card(a) {
   const due = a.nextDue ? `<span class="due">⏰ ${esc(a.nextAction || "next")} · ${a.nextDue}</span>` : "";
+  const roDue = (a.reachOutDue && !reachOutDone(a)) ? `<span class="due ro ${a.reachOutDue < today() ? "over" : ""}">📣 reach out ${a.reachOutDue < today() ? "overdue" : "· " + a.reachOutDue}</span>` : "";
   const spons = a.sponsorVerdict ? sponBadge(a) : (a.sponsors ? `<span class="tag sp">sponsors</span>` : "");
   const ref = a.referralStatus === "Referral secured" ? `<span class="tag rf">★ referral</span>` : (a.referralStatus === "Reached out" ? `<span class="tag rf out">↗ outreach</span>` : "");
   const st = a.state ? `<span class="tag st">${esc(a.state)}</span>` : "";
@@ -179,7 +180,7 @@ function card(a) {
     <div class="card-h"><span class="card-ico">${ini(a)}</span><b>${esc(a.company || "—")}</b><span class="pill ${a.status}">${a.status}</span></div>
     <div class="role">${esc(a.title || "")}</div>
     <div class="meta">${esc(a.dateApplied || "")}${a.location ? " · " + esc(a.location) : ""}${a.workMode ? " · " + esc(a.workMode) : ""}</div>
-    <div class="tags">${pr}${mt}${st}${spons}${ref}${tags}</div>${due}</article>`;
+    <div class="tags">${pr}${mt}${st}${spons}${ref}${tags}</div>${due}${roDue}</article>`;
 }
 
 function renderActivity() {
@@ -211,27 +212,77 @@ function setView(v) {
 
 // ---------- follow-ups (next action + due + importance) --------------------
 function todoItems() {
-  return APPS.filter((a) => a.nextAction || a.nextDue).sort((x, y) => (x.nextDue || "9999").localeCompare(y.nextDue || "9999"));
+  const tasks = [];
+  APPS.forEach((a) => {
+    if (a.reachOutDue && !reachOutDone(a)) tasks.push({ a, when: a.reachOutDue, kind: "reachout", label: a.contactName ? `Reach out to ${a.contactName}` : "Reach out" });
+    if (a.nextAction || a.nextDue) tasks.push({ a, when: a.nextDue || "", kind: "followup", label: a.nextAction || "Follow up" });
+  });
+  return tasks.sort((x, y) => (x.when || "9999").localeCompare(y.when || "9999"));
 }
 function renderTodo() {
   const rows = todoItems();
   const t = today();
-  const body = rows.length ? rows.map((a) => {
-    const overdue = a.nextDue && a.nextDue < t;
-    const soon = a.nextDue && a.nextDue === t;
-    const when = a.nextDue ? (overdue ? `overdue · ${a.nextDue}` : soon ? `due today` : `due ${a.nextDue}`) : "no date";
+  const body = rows.length ? rows.map((r) => {
+    const a = r.a;
+    const overdue = r.when && r.when < t;
+    const soon = r.when && r.when === t;
+    const when = r.when ? (overdue ? `overdue · ${r.when}` : soon ? `due today` : `due ${r.when}`) : "no date";
     const pr = a.priority ? `<span class="tag pr ${a.priority.toLowerCase()}">${esc(a.priority)}</span>` : "";
+    const icon = r.kind === "reachout" ? "📣" : "⏰";
     return `<div class="todo-row ${overdue ? "over" : soon ? "soon" : ""}" data-id="${a.appId}">
       <span class="todo-when">${esc(when)}</span>
-      <div class="todo-main"><b>${esc(a.company || "—")}</b> — ${esc(a.title || "")}<div class="todo-act">${esc(a.nextAction || "Follow up")}</div></div>
+      <div class="todo-main"><b>${esc(a.company || "—")}</b> — ${esc(a.title || "")}<div class="todo-act">${icon} ${esc(r.label)}</div></div>
       <span class="pill ${a.status}">${a.status}</span>${pr}</div>`;
-  }).join("") : `<p class="empty">No follow-ups. Add a <b>Next action + due date</b> to an application to see it here.</p>`;
-  $("#todo-view").innerHTML = `<div class="page-head"><div><h1>⏰ Follow-ups</h1><p class="sub">Applications with a next action, soonest first. Overdue in red.</p></div></div>
+  }).join("") : `<p class="empty">Nothing due. Add a <b>reach-out date</b> or a <b>next action + due date</b> to an application to see it here.</p>`;
+  $("#todo-view").innerHTML = `<div class="page-head"><div><h1>⏰ Follow-ups &amp; reach-outs</h1><p class="sub">Reach-outs (📣) and follow-ups (⏰), soonest first. Overdue in red — clear these before applying to anything new.</p></div></div>
     <div class="container"><div class="todo-list">${body}</div></div>`;
   $$("#todo-view .todo-row").forEach((r) => (r.onclick = () => openDetail(r.dataset.id)));
 }
 
 function kvRow(label, val) { return val ? `<div><span>${label}</span><b>${esc(val)}</b></div>` : ""; }
+
+// ---------- reach out (referral / outreach per application) -----------------
+function reachOutDone(a) { return ["Reached out", "Replied", "Referral secured"].includes(a.referralStatus || ""); }
+function addDays(ymd, n) { const d = new Date((ymd || today()) + "T00:00:00"); d.setDate(d.getDate() + n); return _ymd(d); }
+function reachOutCard(a) {
+  const t = today();
+  const has = a.contactName || a.contactLink || a.contactEmail || a.reachOutMsg || a.reachOutDue;
+  if (!has) {
+    return `<div class="container ro-card"><div class="container-head">📣 Reach out</div><div class="container-body">
+      <p class="muted">No outreach yet. A referral converts ~5–10× better than a cold app — add a contact + message here (grab a template from the <b>Openings</b> tab), then set a reach-out date.</p>
+      <button class="btn primary" id="ro-edit">＋ Add reach-out</button></div></div>`;
+  }
+  const done = reachOutDone(a);
+  const overdue = a.reachOutDue && !done && a.reachOutDue < t;
+  const soon = a.reachOutDue && !done && a.reachOutDue === t;
+  const dueTxt = a.reachOutDue ? (done ? `sent` : overdue ? `⚠ overdue · ${a.reachOutDue}` : soon ? `due today` : `by ${a.reachOutDue}`) : "";
+  const links = [
+    a.contactLink ? `<a class="btn sm" href="${esc(a.contactLink)}" target="_blank" rel="noopener">Open profile</a>` : "",
+    a.contactEmail ? `<a class="btn sm" href="mailto:${esc(a.contactEmail)}">✉ Email</a>` : "",
+  ].filter(Boolean).join(" ");
+  const status = a.referralStatus ? `<span class="ro-status ${done ? "done" : ""}">${esc(a.referralStatus)}</span>` : `<span class="ro-status todo">To reach out</span>`;
+  const actions = [
+    a.reachOutMsg ? `<button class="btn sm" id="ro-copy">Copy message</button>` : "",
+    !done ? `<button class="btn sm primary" id="ro-done">✓ Mark reached out</button>` : "",
+    `<button class="btn sm" id="ro-edit">✎ Edit</button>`,
+  ].filter(Boolean).join(" ");
+  return `<div class="container ro-card ${overdue ? "over" : soon ? "soon" : ""}">
+    <div class="container-head">📣 Reach out ${status}</div>
+    <div class="container-body">
+      ${(a.contactName || dueTxt) ? `<div class="ro-who">${a.contactName ? `<b>${esc(a.contactName)}</b>` : `<span class="muted">contact TBD</span>`}${dueTxt ? ` <span class="ro-due ${overdue ? "over" : soon ? "soon" : ""}">${esc(dueTxt)}</span>` : ""}</div>` : ""}
+      ${links ? `<div class="ro-links">${links}</div>` : ""}
+      ${a.reachOutMsg ? `<pre class="ro-msg">${esc(a.reachOutMsg)}</pre>` : `<p class="muted">No message yet — add one via Edit, or copy a template from the Openings tab.</p>`}
+      <div class="ro-actions">${actions}</div>
+    </div></div>`;
+}
+async function markReachedOut(id) {
+  const a = APPS.find((x) => x.appId === id); if (!a) return;
+  a.referralStatus = "Reached out";
+  a.timeline = (a.timeline || []).concat([{ at: Math.floor(Date.now() / 1000), event: `Reached out${a.contactName ? ` to ${a.contactName}` : ""}` }]);
+  if (!a.nextDue) { a.nextAction = a.nextAction || "Follow up on outreach"; a.nextDue = addDays(today(), 6); } // auto-schedule a follow-up
+  renderDetail(a); renderList(); if (currentView === "todo") renderTodo();
+  try { await api("PUT", "/applications/" + encodeURIComponent(id), { referralStatus: a.referralStatus, timeline: a.timeline, nextAction: a.nextAction, nextDue: a.nextDue }); } catch (_e) { /* optimistic */ }
+}
 
 function renderDetail(a) {
   const now = Math.floor(Date.now() / 1000);
@@ -289,12 +340,16 @@ function renderDetail(a) {
         ${(a.attributes && a.attributes.length) ? `<div class="container"><div class="container-head">Custom fields</div><div class="container-body kv">
           ${a.attributes.map((x) => `<div><span>${esc(x.key)}</span><b>${esc(x.value)}</b></div>`).join("")}
         </div></div>` : ""}
-        ${(a.contactName || a.contactEmail) ? `<div class="container"><div class="container-head">Contact</div><div class="container-body kv">
-          ${kvRow("Recruiter", a.contactName)}
-          ${a.contactEmail ? `<div><span>Email</span><b><a href="mailto:${esc(a.contactEmail)}">${esc(a.contactEmail)}</a></b></div>` : ""}
-        </div></div>` : ""}
+        ${reachOutCard(a)}
       </div>
     </div>`;
+
+  const roCopy = $("#ro-copy"); if (roCopy) roCopy.onclick = () => {
+    const w = navigator.clipboard && navigator.clipboard.writeText ? navigator.clipboard.writeText(a.reachOutMsg || "") : Promise.reject();
+    w.then(() => { roCopy.textContent = "Copied ✓"; setTimeout(() => (roCopy.textContent = "Copy message"), 1200); }).catch(() => window.prompt("Copy:", a.reachOutMsg || ""));
+  };
+  const roDone = $("#ro-done"); if (roDone) roDone.onclick = () => markReachedOut(a.appId);
+  const roEdit = $("#ro-edit"); if (roEdit) roEdit.onclick = () => openEdit(a.appId);
 
   $("#d-back").onclick = closeDetail;
   $("#d-edit").onclick = () => openEdit(a.appId);

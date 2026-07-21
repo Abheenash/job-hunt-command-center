@@ -526,3 +526,23 @@ input.op-f { flex: 1 1 220px; min-width: 180px; }
   border-radius: 8px; padding: .6rem .7rem; margin: .5rem 0 0; font-size: .82rem; line-height: 1.5;
   font-family: inherit; color: var(--text); }
 @media (prefers-color-scheme: dark) { .lp-callout { background: #2a2113; } .lp-tpl-body { background: #1b222b; } }
+
+/* --- Reach out (per-application outreach card) ---------------------------- */
+.ro-card.over { border-color: var(--danger); }
+.ro-card.soon { border-color: var(--orange-2); }
+.ro-status { font-size: .68rem; font-weight: 600; padding: .1rem .5rem; border-radius: 999px;
+  background: #eef1f4; color: var(--muted); vertical-align: middle; margin-left: .3rem; }
+.ro-status.todo { background: #fff4e5; color: var(--orange-2); }
+.ro-status.done { background: #e6f4ea; color: var(--ok); }
+.ro-who { margin-bottom: .5rem; font-size: .92rem; }
+.ro-due { font-size: .72rem; font-weight: 600; padding: .08rem .45rem; border-radius: 999px; background: #eef1f4; color: var(--muted); }
+.ro-due.over { background: #fdece9; color: var(--danger); }
+.ro-due.soon { background: #fff4e5; color: var(--orange-2); }
+.ro-links { display: flex; gap: .4rem; margin-bottom: .55rem; flex-wrap: wrap; }
+.ro-msg { white-space: pre-wrap; word-break: break-word; background: #f7f9fb; border: 1px solid var(--border-soft);
+  border-radius: 8px; padding: .55rem .65rem; margin: 0 0 .55rem; font-size: .8rem; line-height: 1.5;
+  font-family: inherit; color: var(--text); max-height: 15rem; overflow-y: auto; }
+.ro-actions { display: flex; gap: .4rem; flex-wrap: wrap; }
+.due.ro { background: #fff4e5; color: var(--orange-2); }
+.due.ro.over { background: #fdece9; color: var(--danger); }
+@media (prefers-color-scheme: dark) { .ro-msg { background: #1b222b; } }
