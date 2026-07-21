@@ -17,7 +17,7 @@ const fmtDate = (epoch) => { try { return _ymd(new Date(epoch * 1000)); } catch 
 
 let APPS = [];
 let editing = null, currentDetail = null;
-let filterStatus = "all", filterState = "", filterDate = "", filterOpt = false, filterRef = false, query = "", sortBy = "updated";
+let filterStatus = "all", filterState = "", filterDate = "", filterOpt = false, filterReach = "", query = "", sortBy = "updated";
 
 function parseSalary(s) {
   if (!s) return 0;
@@ -149,7 +149,7 @@ function visible() {
   if (filterState) rows = rows.filter((a) => a.state === filterState);
   if (filterDate) rows = rows.filter((a) => a.dateApplied === filterDate);
   if (filterOpt) rows = rows.filter((a) => a.sponsors);
-  if (filterRef) rows = rows.filter((a) => a.referralStatus);
+  if (filterReach) rows = rows.filter(matchesReach);
   if (query) {
     const q = query.toLowerCase();
     rows = rows.filter((a) => [a.company, a.title, a.location, a.state, a.tags, a.requiredSkills].join(" ").toLowerCase().includes(q));
@@ -159,7 +159,7 @@ function visible() {
 
 function renderList() {
   const rows = sortApps(visible());
-  $("#f-clear").hidden = !(filterState || filterDate || filterOpt || filterRef);
+  $("#f-clear").hidden = !(filterState || filterDate || filterOpt || filterReach);
   $("#empty").hidden = APPS.length !== 0;
   $("#list").innerHTML = rows.map(card).join("");
   $$("#list .card").forEach((c) => (c.onclick = () => openDetail(c.dataset.id)));
@@ -243,6 +243,17 @@ function kvRow(label, val) { return val ? `<div><span>${label}</span><b>${esc(va
 
 // ---------- reach out (referral / outreach per application) -----------------
 function reachOutDone(a) { return ["Reached out", "Replied", "Referral secured"].includes(a.referralStatus || ""); }
+function matchesReach(a) {
+  switch (filterReach) {
+    case "notdone": return !reachOutDone(a);                                             // haven't contacted anyone yet
+    case "done": return reachOutDone(a);                                                 // reached out / replied / secured
+    case "replied": return a.referralStatus === "Replied";
+    case "secured": return a.referralStatus === "Referral secured";
+    case "due": return !!a.reachOutDue && !reachOutDone(a);                              // has a pending reach-out date
+    case "overdue": return !!a.reachOutDue && !reachOutDone(a) && a.reachOutDue < today();
+    default: return true;
+  }
+}
 function addDays(ymd, n) { const d = new Date((ymd || today()) + "T00:00:00"); d.setDate(d.getDate() + n); return _ymd(d); }
 function reachOutCard(a) {
   const t = today();
@@ -1382,7 +1393,7 @@ document.addEventListener("click", (e) => { if (!e.target.closest(".pop-wrap")) 
 const closeDrawer = () => document.body.classList.remove("nav-open");
 $("#hamburger").onclick = () => document.body.classList.toggle("nav-open");
 $("#nav-backdrop").onclick = closeDrawer;
-$("#home-logo").onclick = () => { filterStatus = "all"; filterState = ""; filterDate = ""; filterOpt = false; filterRef = false; query = ""; $("#search").value = ""; $("#f-state").value = ""; $("#f-date").value = ""; $("#f-opt").checked = false; $("#f-ref").checked = false; render(); setView("all"); closeDrawer(); window.scrollTo(0, 0); };
+$("#home-logo").onclick = () => { filterStatus = "all"; filterState = ""; filterDate = ""; filterOpt = false; filterReach = ""; query = ""; $("#search").value = ""; $("#f-state").value = ""; $("#f-date").value = ""; $("#f-opt").checked = false; $("#f-reach").value = ""; render(); setView("all"); closeDrawer(); window.scrollTo(0, 0); };
 $("#sidebar").addEventListener("click", (e) => { if (e.target.closest(".chip")) closeDrawer(); });
 $("#add").onclick = () => openEdit(null);
 $("#cancel").onclick = cancelEdit;
@@ -1404,8 +1415,8 @@ $("#analytics-btn").onclick = () => { const a = $("#analytics"); a.hidden = !a.h
 $("#f-state").onchange = (e) => { filterState = e.target.value; renderList(); };
 $("#f-date").onchange = (e) => { filterDate = e.target.value; renderActivity(); renderList(); };
 $("#f-opt").onchange = (e) => { filterOpt = e.target.checked; renderList(); };
-$("#f-ref").onchange = (e) => { filterRef = e.target.checked; renderList(); };
-$("#f-clear").onclick = () => { filterState = ""; filterDate = ""; filterOpt = false; filterRef = false; $("#f-state").value = ""; $("#f-date").value = ""; $("#f-opt").checked = false; $("#f-ref").checked = false; renderActivity(); renderList(); renderStateFilter(); };
+$("#f-reach").onchange = (e) => { filterReach = e.target.value; renderList(); };
+$("#f-clear").onclick = () => { filterState = ""; filterDate = ""; filterOpt = false; filterReach = ""; $("#f-state").value = ""; $("#f-date").value = ""; $("#f-opt").checked = false; $("#f-reach").value = ""; renderActivity(); renderList(); renderStateFilter(); };
 $("#search").oninput = (e) => { query = e.target.value; currentDetail = null; showOnly("#list-view"); renderList(); };
 $("#sort").onchange = (e) => { sortBy = e.target.value; renderList(); };
 document.onkeydown = (e) => {

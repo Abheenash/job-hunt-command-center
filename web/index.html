@@ -78,7 +78,15 @@
           <select id="f-state" class="side-input"><option value="">All states</option></select>
           <input id="f-date" type="date" class="side-input" title="Filter by date applied" />
           <label class="side-check"><input type="checkbox" id="f-opt" /> OPT / sponsors only</label>
-          <label class="side-check"><input type="checkbox" id="f-ref" /> Referrals only</label>
+          <select id="f-reach" class="side-input" title="Filter by reach-out status">
+            <option value="">All reach-outs</option>
+            <option value="notdone">📣 Not reached out</option>
+            <option value="done">✅ Reached out</option>
+            <option value="replied">💬 Replied</option>
+            <option value="secured">★ Referral secured</option>
+            <option value="due">⏰ Reach-out due</option>
+            <option value="overdue">⚠ Overdue reach-out</option>
+          </select>
           <button id="f-clear" class="btn wide" hidden>Clear filters</button>
         </div>
         <div class="side-status" id="side-status">
