@@ -269,7 +269,7 @@ function reachOutCard(a) {
   const ros = getReachOuts(a);
   if (!ros.length) {
     return `<div class="container ro-card"><div class="container-head">📣 Reach out</div><div class="container-body">
-      <p class="muted">No one added yet. A referral converts far better than a cold app — add the people to contact for this role (grab a message from the <b>Openings</b> tab).</p>
+      <p class="muted">No one added yet. A referral converts far better than a cold app — add the people to contact for this role.</p>
       <button class="btn primary" id="ro-edit">＋ Add people</button></div></div>`;
   }
   const items = ros.map((r, i) => {
@@ -700,7 +700,7 @@ function roRow(e = {}) {
     <input class="ro-email" type="email" placeholder="Email" value="${esc(e.email || "")}" />
     <input class="ro-date" type="date" title="Reach out by" value="${esc(e.due || "")}" />
     <button type="button" class="ro-del" title="Remove person">✕</button>
-    <textarea class="ro-msg-in" rows="3" placeholder="Reach-out message (paste a template from the Openings tab)…">${esc(e.msg || "")}</textarea>`;
+    <textarea class="ro-msg-in" rows="3" placeholder="Reach-out message…">${esc(e.msg || "")}</textarea>`;
   row.querySelector(".ro-del").onclick = () => row.remove();
   return row;
 }
@@ -1164,31 +1164,84 @@ const LP_SPONSOR_TOOLS = [
   { l: "GitHub · SimplifyJobs New-Grad Positions (🛂 tagged)", u: 'https://github.com/SimplifyJobs/New-Grad-Positions', note: "Live new-grad list with sponsorship flags." },
   { l: "GitHub · vanshb03 New-Grad-2027 (🛂 tagged)", u: 'https://github.com/vanshb03/New-Grad-2027', note: "Second curated new-grad feed, updated daily." },
 ];
-const LP_CAPEXEMPT = [
-  { l: "University of Houston", u: 'https://uh.wd1.myworkdayjobs.com/UHCareers' },
-  { l: "Rice University", u: 'https://jobs.rice.edu/' },
+// Target companies — categorized, apply direct from their career pages. (Full list also in
+// _local/company-targets.md.) Verify sponsorship on the specific req before applying.
+const LP_CAPEXEMPT = [   // 🎓 H-1B lottery-proof — universities & nonprofit hospitals (apply here first)
+  { l: "University of Houston 📍 (your school)", u: 'https://uh.wd1.myworkdayjobs.com/UHCareers' },
+  { l: "MD Anderson Cancer Center 📍", u: 'https://careers.mdanderson.org/' },
+  { l: "Houston Methodist 📍", u: 'https://jobs.houstonmethodist.org/' },
+  { l: "Baylor College of Medicine 📍", u: 'https://jobs.bcm.edu/' },
+  { l: "Texas Children's Hospital 📍", u: 'https://jobs.texaschildrens.org/' },
+  { l: "UTHealth Houston 📍", u: 'https://go.uth.edu/careers' },
+  { l: "Memorial Hermann 📍", u: 'https://careers.memorialhermann.org/' },
+  { l: "Rice University 📍", u: 'https://jobs.rice.edu/' },
   { l: "UT Austin", u: 'https://jobs.utexas.edu/' },
   { l: "Texas A&M", u: 'https://jobs.tamu.edu/' },
-  { l: "MD Anderson Cancer Center", u: 'https://careers.mdanderson.org/' },
-  { l: "Houston Methodist", u: 'https://jobs.houstonmethodist.org/' },
-  { l: "Baylor College of Medicine", u: 'https://jobs.bcm.edu/' },
-  { l: "Memorial Hermann", u: 'https://careers.memorialhermann.org/' },
+  { l: "UT Dallas", u: 'https://jobs.utdallas.edu/' },
 ];
-const LP_COMPANY_BOARDS = [
-  { l: "Red Hat (heavy H-1B sponsor)", u: 'https://redhat.wd5.myworkdayjobs.com/jobs' },
-  { l: "IBM", u: 'https://www.ibm.com/careers/search' },
+const LP_TEXAS = [   // 📍 Texas employers — high UH-alumni density, no relocation
+  { l: "H-E-B Digital (San Antonio/Houston)", u: 'https://careers.heb.com/' },
+  { l: "USAA (San Antonio) — verify sponsorship", u: 'https://www.usaajobs.com/' },
+  { l: "Charles Schwab (Southlake)", u: 'https://www.schwabjobs.com/' },
+  { l: "Fidelity (Westlake) — heavy sponsor", u: 'https://jobs.fidelity.com/' },
+  { l: "Tyler Technologies (Plano)", u: 'https://www.tylertech.com/careers' },
+  { l: "Dell (Round Rock)", u: 'https://jobs.dell.com/' },
+  { l: "Texas Instruments (commercial only)", u: 'https://careers.ti.com/' },
+  { l: "Rackspace (San Antonio)", u: 'https://www.rackspace.com/careers' },
+  { l: "Indeed (Austin)", u: 'https://www.indeed.jobs/' },
+];
+const LP_ENERGY = [   // 🛢️ Houston energy majors — large local cloud/IT orgs, many UH grads
+  { l: "ExxonMobil 📍", u: 'https://jobs.exxonmobil.com/' },
+  { l: "Chevron 📍", u: 'https://careers.chevron.com/' },
+  { l: "ConocoPhillips 📍", u: 'https://careers.conocophillips.com/' },
+  { l: "SLB / Schlumberger 📍 (strong tech sponsor)", u: 'https://careers.slb.com/' },
+  { l: "Halliburton 📍", u: 'https://jobs.halliburton.com/' },
+  { l: "Baker Hughes 📍", u: 'https://careers.bakerhughes.com/' },
+  { l: "Phillips 66 📍", u: 'https://jobs.phillips66.com/' },
+  { l: "Occidental (Oxy) 📍", u: 'https://www.oxy.com/careers/' },
+];
+const LP_BIGTECH = [   // 🏆 Big-tech + ☁️ cloud/infra product companies — best stack fit, sponsor at scale
+  { l: "Amazon / AWS (Cloud Support Engineer = bullseye)", u: 'https://www.amazon.jobs/' },
+  { l: "Microsoft (Azure Support roles)", u: 'https://careers.microsoft.com/' },
+  { l: "Google (Technical Solutions Engineer)", u: 'https://www.google.com/about/careers/applications/' },
+  { l: "Meta (Production Engineer, University Grad)", u: 'https://www.metacareers.com/' },
   { l: "NVIDIA", u: 'https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite' },
+  { l: "IBM", u: 'https://www.ibm.com/careers/search' },
+  { l: "Red Hat (heavy sponsor)", u: 'https://redhat.wd5.myworkdayjobs.com/jobs' },
   { l: "HashiCorp (makers of Terraform)", u: 'https://www.hashicorp.com/careers/open-positions' },
   { l: "Datadog", u: 'https://careers.datadoghq.com/' },
   { l: "Cloudflare", u: 'https://www.cloudflare.com/careers/jobs/' },
-  { l: "Confluent", u: 'https://careers.confluent.io/' },
-  { l: "Akamai", u: 'https://jobs.akamai.com/en/sites/CX_1/jobs' },
-  { l: "DigitalOcean", u: 'https://careers.digitalocean.com/' },
-  { l: "Fidelity (Westlake TX)", u: 'https://jobs.fidelity.com/' },
+  { l: "MongoDB", u: 'https://www.mongodb.com/company/careers' },
   { l: "Snowflake", u: 'https://careers.snowflake.com/us/en' },
-  { l: "MongoDB", u: 'https://www.mongodb.com/company/careers/teams/engineering' },
-  { l: "Stripe", u: 'https://stripe.com/jobs/search' },
+  { l: "Confluent", u: 'https://careers.confluent.io/' },
   { l: "GitLab", u: 'https://about.gitlab.com/jobs/all-jobs/' },
+  { l: "Databricks", u: 'https://www.databricks.com/company/careers' },
+  { l: "DigitalOcean", u: 'https://careers.digitalocean.com/' },
+  { l: "Akamai", u: 'https://jobs.akamai.com/en/sites/CX_1/jobs' },
+];
+const LP_FINTECH = [   // 💳 Fintech / finance — heavy sponsors, huge cloud/SRE orgs
+  { l: "Capital One (AWS-first; Plano 📍)", u: 'https://www.capitalonecareers.com/' },
+  { l: "JPMorgan Chase (Plano/Houston 📍)", u: 'https://careers.jpmorgan.com/' },
+  { l: "Goldman Sachs", u: 'https://www.goldmansachs.com/careers/' },
+  { l: "Bloomberg", u: 'https://careers.bloomberg.com/' },
+  { l: "Stripe", u: 'https://stripe.com/jobs/search' },
+  { l: "PayPal", u: 'https://careers.pypl.com/' },
+  { l: "Coinbase", u: 'https://www.coinbase.com/careers' },
+  { l: "Plaid", u: 'https://plaid.com/careers/' },
+  { l: "Robinhood", u: 'https://careers.robinhood.com/' },
+  { l: "Chime", u: 'https://careers.chime.com/' },
+];
+const LP_CONSULTANCY = [   // 🤝 OPT→H-1B consultancies + AWS partners — structured early-career cloud tracks
+  { l: "Accenture (Technology Development Program)", u: 'https://www.accenture.com/us-en/careers' },
+  { l: "Slalom (AWS Cloud Residency)", u: 'https://www.slalom.com/careers' },
+  { l: "Infosys", u: 'https://www.infosys.com/careers/' },
+  { l: "EPAM", u: 'https://www.epam.com/careers' },
+  { l: "Thoughtworks", u: 'https://www.thoughtworks.com/careers' },
+  { l: "Capgemini", u: 'https://www.capgemini.com/careers/' },
+  { l: "Cognizant", u: 'https://careers.cognizant.com/' },
+  { l: "Caylent (AWS Premier Partner)", u: 'https://caylent.com/careers' },
+  { l: "Mission Cloud (AWS partner)", u: 'https://www.missioncloud.com/careers' },
+  { l: "DoiT (cloud)", u: 'https://www.doit.com/careers/' },
 ];
 // Sponsor-first aggregators + startup boards — where you HAVEN'T been (beyond LinkedIn/Indeed/Dice).
 const LP_AGGREGATORS = [
@@ -1201,20 +1254,9 @@ const LP_AGGREGATORS = [
 // University of Houston — your warmest, most underused channel (alumni + cap-exempt + fall recruiting).
 const LP_UH = [
   { l: "UH Handshake — student/alumni job board + fall recruiting", u: 'https://uh.joinhandshake.com/', note: "Log in with your UH account. Fall new-grad recruiting opens now — employers here WANT to hire UH grads." },
-  { l: "Find UH alumni at any company (LinkedIn)", u: 'https://www.linkedin.com/school/university-of-houston/people/', note: "Open this, then type a company in the search box → see UH grads who work there → message them (template below). Warmest referral path you have." },
+  { l: "Find UH alumni at any company (LinkedIn)", u: 'https://www.linkedin.com/school/university-of-houston/people/', note: "Open this, then type a company in the search box → see UH grads who work there → message them for a referral. Warmest path you have." },
   { l: "UH University Career Services", u: 'https://www.uh.edu/ucs/', note: "Résumé reviews, career fairs, employer connections." },
   { l: "UH International Student Services (OPT/visa job help)", u: 'https://www.uh.edu/oiss/', note: "OPT/CPT guidance + international-student career resources; ask if UH gives you Interstride." },
-];
-// Copy-paste outreach templates — turn "who do I even message" into pasting.
-const LP_TEMPLATES = [
-  { t: "UH alumni referral ask (LinkedIn DM)", tip: "Warmest message you can send. Find the person via the UH alumni link above.",
-    body: "Hi [Name] — fellow UH Cougar here (M.S. Computer & Systems Engineering, '25). I saw you're at [Company] and I just applied for the [Role] role. Your team's work caught my eye. Would you be open to referring me, or sharing any insight? Happy to send my résumé + a two-line summary to make it easy. Either way — go Coogs, and thanks for reading!" },
-  { t: "Referral ask (anyone at the company)", tip: "For a company where you don't have a UH connection — find an engineer on the team.",
-    body: "Hi [Name] — I recently applied for the [Role] position at [Company] and your work on [team/area] stood out to me. I'm an AWS-certified Cloud/DevOps engineer (M.S. + ~2 yrs experience, live projects at abheenash.com). If you're open to it, a referral would mean a lot — I can send my résumé and a short blurb so it takes you 30 seconds. Completely understand if not. Thanks!" },
-  { t: "Recruiter follow-up (5–7 days after applying)", tip: "Reaffirm interest and give them an easy next step. Send once, not repeatedly.",
-    body: "Hi [Name], I applied for the [Role] role at [Company] on [date] and wanted to reaffirm my strong interest. It's a close match for my background — AWS Solutions Architect–Associate, production on-call + Terraform/CI-CD at HCLTech, and a portfolio of live AWS projects (abheenash.com). Is there anything I can send to help move my application forward? Thanks for your time." },
-  { t: "LinkedIn connection note (≤300 characters)", tip: "Short, since LinkedIn caps connection notes. Personalize [Company]/[Role].",
-    body: "Hi [Name] — fellow UH grad and cloud/DevOps engineer here. I just applied to [Company] for [Role] and would love to connect and learn a bit about your team. Thanks!" },
 ];
 function lpLinks(arr) {
   return arr.map((x) => `<a class="lp-link" href="${esc(x.u)}" target="_blank" rel="noopener">${esc(x.l)}${x.note ? `<span class="lp-note">${esc(x.note)}</span>` : ""}</a>`).join("");
@@ -1222,13 +1264,13 @@ function lpLinks(arr) {
 function renderLaunchpad(el) {
   el.innerHTML = `<div class="page-head"><div>
       <h1>🚀 Job-Search Launchpad</h1>
-      <p class="sub">Curated deep-links into every job platform — pre-filtered for <b>your</b> profile (entry/associate cloud · DevOps · SRE, Texas + remote, recent postings) — plus sponsor-first boards, your UH alumni channel, target companies, and copy-paste outreach templates. Open a link, it lands you on a live search. No scraping; always fresh.</p>
+      <p class="sub">Curated deep-links into every job platform — pre-filtered for <b>your</b> profile (entry/associate cloud · DevOps · SRE, Texas + remote, recent postings) — plus sponsor-first boards, your UH alumni channel, and a categorized list of target companies to apply to direct. Open a link, it lands you on a live search. No scraping; always fresh.</p>
     </div></div>
     <div class="container"><div class="container-body lp-wrap">
 
       <section class="lp-callout">
         <h3>⚡ The move now: outreach beats screening</h3>
-        <p>You've applied at real volume — but every one is a <b>cold</b> application, and for a sponsorship candidate those convert worst. A <b>referral is worth ~5–10 cold applications.</b> For each role you apply to: find <b>one person</b> at that company (a <b>UH alum is warmest</b>), send a template below, and set a <b>5–7 day follow-up</b>. Fewer new applications, more human contact on the ones you have.</p>
+        <p>You've applied at real volume — but every one is a <b>cold</b> application, and for a sponsorship candidate those convert worst. A <b>referral is worth ~5–10 cold applications.</b> For each role you apply to: find <b>one person</b> at that company (a <b>UH alum is warmest</b>), send them a short referral note, and set a <b>5–7 day follow-up</b>. Fewer new applications, more human contact on the ones you have.</p>
       </section>
 
       <section class="lp-sec">
@@ -1263,30 +1305,25 @@ function renderLaunchpad(el) {
       </section>
 
       <section class="lp-sec">
-        <h3>✉️ Outreach templates <span class="lp-muted">— copy, fill the [brackets], send</span></h3>
-        <div class="lp-tpls">
-          ${LP_TEMPLATES.map((t, i) => `<div class="lp-tpl">
-            <div class="lp-tpl-h"><b>${esc(t.t)}</b><button class="btn sm lp-tpl-copy" data-i="${i}">Copy</button></div>
-            <p class="lp-tip">${esc(t.tip)}</p>
-            <pre class="lp-tpl-body">${esc(t.body)}</pre>
-          </div>`).join("")}
-        </div>
-      </section>
-
-      <section class="lp-sec">
         <h3>🛂 Visa-sponsorship research <span class="lp-muted">— check before you apply</span></h3>
         <div class="lp-links wide">${lpLinks(LP_SPONSOR_TOOLS)}</div>
       </section>
 
       <section class="lp-sec">
-        <h3>🎓 Cap-exempt employers <span class="lp-muted">— H-1B lottery-proof (Texas)</span></h3>
-        <p class="lp-hint">Universities & nonprofit hospitals are <b>exempt from the H-1B lottery</b> — they can file for you any time of year. Huge advantage on OPT. Browse their IT / cloud / systems roles directly.</p>
+        <h3>🎯 Target companies <span class="lp-muted">— apply direct from their career pages</span></h3>
+        <p class="lp-hint">Grouped by priority for your situation. <b>Verify the sponsorship clause on the specific req</b> — company-level "sponsors" ≠ every role sponsors. 📍 = Texas / no relocation.</p>
+        <h4 class="lp-sub">🎓 Cap-exempt — Texas <span class="lp-muted">(H-1B lottery-proof — apply here first)</span></h4>
         <div class="lp-links grid3">${lpLinks(LP_CAPEXEMPT)}</div>
-      </section>
-
-      <section class="lp-sec">
-        <h3>🏢 Sponsor-friendly company boards <span class="lp-muted">— strong fit for your stack</span></h3>
-        <div class="lp-links grid3">${lpLinks(LP_COMPANY_BOARDS)}</div>
+        <h4 class="lp-sub">📍 Texas employers <span class="lp-muted">(home-field: UH-alumni density)</span></h4>
+        <div class="lp-links grid3">${lpLinks(LP_TEXAS)}</div>
+        <h4 class="lp-sub">🛢️ Houston energy majors <span class="lp-muted">(large local cloud/IT orgs)</span></h4>
+        <div class="lp-links grid3">${lpLinks(LP_ENERGY)}</div>
+        <h4 class="lp-sub">🏆 Big-tech &amp; cloud-product <span class="lp-muted">(best stack fit, sponsor at scale)</span></h4>
+        <div class="lp-links grid3">${lpLinks(LP_BIGTECH)}</div>
+        <h4 class="lp-sub">💳 Fintech &amp; finance <span class="lp-muted">(heavy sponsors, big cloud/SRE orgs)</span></h4>
+        <div class="lp-links grid3">${lpLinks(LP_FINTECH)}</div>
+        <h4 class="lp-sub">🤝 Consultancies &amp; AWS partners <span class="lp-muted">(OPT→H-1B early-career tracks)</span></h4>
+        <div class="lp-links grid3">${lpLinks(LP_CONSULTANCY)}</div>
       </section>
 
     </div></div>`;
@@ -1299,7 +1336,6 @@ function renderLaunchpad(el) {
   const cb = $("#lp-copy-bool"); if (cb) cb.onclick = () => copy(LP_BOOLEAN, cb);
   const cs = $("#lp-copy-spon"); if (cs) cs.onclick = () => copy(LP_SPONSOR, cs);
   $$("#openings-view .lp-chip").forEach((c) => (c.onclick = () => copy(c.dataset.copytext, c, "Copied ✓")));
-  $$("#openings-view .lp-tpl-copy").forEach((b) => (b.onclick = () => copy(LP_TEMPLATES[+b.dataset.i].body, b)));
 }
 function renderOpenings() {
   const el = $("#openings-view"); if (!el) return;
