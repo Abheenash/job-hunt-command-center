@@ -1261,14 +1261,19 @@ const LP_UH = [
 function lpLinks(arr) {
   return arr.map((x) => `<a class="lp-link" href="${esc(x.u)}" target="_blank" rel="noopener">${esc(x.l)}${x.note ? `<span class="lp-note">${esc(x.note)}</span>` : ""}</a>`).join("");
 }
-// Daily-reset checklist for the target companies. Stored in this browser (localStorage),
-// keyed to today's date — so the checkmarks clear automatically each new day for a fresh pass.
+// Weekly-reset checklist for the target companies. Stored in this browser (localStorage),
+// keyed to the current week (Monday) — so the checkmarks clear automatically each new week.
 const LP_COMPANIES = () => [...LP_CAPEXEMPT, ...LP_TEXAS, ...LP_ENERGY, ...LP_BIGTECH, ...LP_FINTECH, ...LP_CONSULTANCY];
+function weekKey() {                              // Monday of the current week, as YYYY-MM-DD
+  const d = new Date(today() + "T00:00:00");
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  return _ymd(d);
+}
 function lpChecks() {
   try {
     const s = JSON.parse(localStorage.getItem("lp-checks") || "{}");
-    return s.date === today() ? { date: s.date, checked: s.checked || {} } : { date: today(), checked: {} };
-  } catch (_e) { return { date: today(), checked: {} }; }
+    return s.date === weekKey() ? { date: s.date, checked: s.checked || {} } : { date: weekKey(), checked: {} };
+  } catch (_e) { return { date: weekKey(), checked: {} }; }
 }
 function lpSaveChecks(s) { try { localStorage.setItem("lp-checks", JSON.stringify(s)); } catch (_e) { /* private mode */ } }
 function lpCoLinks(arr, checked) {
@@ -1281,7 +1286,7 @@ function lpCoLinks(arr, checked) {
   }).join("");
 }
 function renderLaunchpad(el) {
-  const checks = lpChecks(); lpSaveChecks(checks);          // persist the daily reset
+  const checks = lpChecks(); lpSaveChecks(checks);          // persist the weekly reset
   const coAll = LP_COMPANIES(), coTotal = coAll.length;
   const coDone = () => coAll.filter((x) => lpChecks().checked[x.u]).length;
   el.innerHTML = `<div class="page-head"><div>
@@ -1334,9 +1339,9 @@ function renderLaunchpad(el) {
       <section class="lp-sec">
         <div class="lp-co-head">
           <h3>🎯 Target companies <span class="lp-muted">— apply direct from their career pages</span></h3>
-          <div class="lp-co-tools"><span id="lp-co-progress" class="lp-co-prog">${coDone()} / ${coTotal} done today</span><button class="btn sm" id="lp-co-reset">Reset today</button></div>
+          <div class="lp-co-tools"><span id="lp-co-progress" class="lp-co-prog">${coDone()} / ${coTotal} done this week</span><button class="btn sm" id="lp-co-reset">Reset week</button></div>
         </div>
-        <p class="lp-hint">Tick a company off once you've applied to / reviewed it today — the checkmarks <b>reset every day</b> so it's a fresh daily pass (saved in this browser). <b>Verify the sponsorship clause on the specific req.</b> 📍 = Texas / no relocation.</p>
+        <p class="lp-hint">Tick a company off once you've applied to / reviewed it — the checkmarks <b>reset every week</b> (each Monday) so it's a fresh weekly pass (saved in this browser). <b>Verify the sponsorship clause on the specific req.</b> 📍 = Texas / no relocation.</p>
         <h4 class="lp-sub">🎓 Cap-exempt — Texas <span class="lp-muted">(H-1B lottery-proof — apply here first)</span></h4>
         <div class="lp-links grid3">${lpCoLinks(LP_CAPEXEMPT, checks.checked)}</div>
         <h4 class="lp-sub">📍 Texas employers <span class="lp-muted">(home-field: UH-alumni density)</span></h4>
@@ -1362,7 +1367,7 @@ function renderLaunchpad(el) {
   const cs = $("#lp-copy-spon"); if (cs) cs.onclick = () => copy(LP_SPONSOR, cs);
   $$("#openings-view .lp-chip").forEach((c) => (c.onclick = () => copy(c.dataset.copytext, c, "Copied ✓")));
   // Target-company daily checklist
-  const refreshProg = () => { const p = $("#lp-co-progress"); if (p) p.textContent = `${coDone()} / ${coTotal} done today`; };
+  const refreshProg = () => { const p = $("#lp-co-progress"); if (p) p.textContent = `${coDone()} / ${coTotal} done this week`; };
   $$("#openings-view .lp-co-chk").forEach((c) => (c.onchange = () => {
     const s = lpChecks();
     if (c.checked) s.checked[c.dataset.u] = true; else delete s.checked[c.dataset.u];
@@ -1371,7 +1376,7 @@ function renderLaunchpad(el) {
     refreshProg();
   }));
   const rst = $("#lp-co-reset"); if (rst) rst.onclick = () => {
-    lpSaveChecks({ date: today(), checked: {} });
+    lpSaveChecks({ date: weekKey(), checked: {} });
     $$("#openings-view .lp-co-chk").forEach((c) => { c.checked = false; c.closest(".lp-co").classList.remove("done"); });
     refreshProg();
   };
