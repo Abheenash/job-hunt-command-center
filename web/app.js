@@ -1261,7 +1261,29 @@ const LP_UH = [
 function lpLinks(arr) {
   return arr.map((x) => `<a class="lp-link" href="${esc(x.u)}" target="_blank" rel="noopener">${esc(x.l)}${x.note ? `<span class="lp-note">${esc(x.note)}</span>` : ""}</a>`).join("");
 }
+// Daily-reset checklist for the target companies. Stored in this browser (localStorage),
+// keyed to today's date — so the checkmarks clear automatically each new day for a fresh pass.
+const LP_COMPANIES = () => [...LP_CAPEXEMPT, ...LP_TEXAS, ...LP_ENERGY, ...LP_BIGTECH, ...LP_FINTECH, ...LP_CONSULTANCY];
+function lpChecks() {
+  try {
+    const s = JSON.parse(localStorage.getItem("lp-checks") || "{}");
+    return s.date === today() ? { date: s.date, checked: s.checked || {} } : { date: today(), checked: {} };
+  } catch (_e) { return { date: today(), checked: {} }; }
+}
+function lpSaveChecks(s) { try { localStorage.setItem("lp-checks", JSON.stringify(s)); } catch (_e) { /* private mode */ } }
+function lpCoLinks(arr, checked) {
+  return arr.map((x) => {
+    const on = !!checked[x.u];
+    return `<div class="lp-co${on ? " done" : ""}">
+      <input type="checkbox" class="lp-co-chk" data-u="${esc(x.u)}"${on ? " checked" : ""} title="Mark done for today" />
+      <a class="lp-link" href="${esc(x.u)}" target="_blank" rel="noopener">${esc(x.l)}</a>
+    </div>`;
+  }).join("");
+}
 function renderLaunchpad(el) {
+  const checks = lpChecks(); lpSaveChecks(checks);          // persist the daily reset
+  const coAll = LP_COMPANIES(), coTotal = coAll.length;
+  const coDone = () => coAll.filter((x) => lpChecks().checked[x.u]).length;
   el.innerHTML = `<div class="page-head"><div>
       <h1>🚀 Job-Search Launchpad</h1>
       <p class="sub">Curated deep-links into every job platform — pre-filtered for <b>your</b> profile (entry/associate cloud · DevOps · SRE, Texas + remote, recent postings) — plus sponsor-first boards, your UH alumni channel, and a categorized list of target companies to apply to direct. Open a link, it lands you on a live search. No scraping; always fresh.</p>
@@ -1310,20 +1332,23 @@ function renderLaunchpad(el) {
       </section>
 
       <section class="lp-sec">
-        <h3>🎯 Target companies <span class="lp-muted">— apply direct from their career pages</span></h3>
-        <p class="lp-hint">Grouped by priority for your situation. <b>Verify the sponsorship clause on the specific req</b> — company-level "sponsors" ≠ every role sponsors. 📍 = Texas / no relocation.</p>
+        <div class="lp-co-head">
+          <h3>🎯 Target companies <span class="lp-muted">— apply direct from their career pages</span></h3>
+          <div class="lp-co-tools"><span id="lp-co-progress" class="lp-co-prog">${coDone()} / ${coTotal} done today</span><button class="btn sm" id="lp-co-reset">Reset today</button></div>
+        </div>
+        <p class="lp-hint">Tick a company off once you've applied to / reviewed it today — the checkmarks <b>reset every day</b> so it's a fresh daily pass (saved in this browser). <b>Verify the sponsorship clause on the specific req.</b> 📍 = Texas / no relocation.</p>
         <h4 class="lp-sub">🎓 Cap-exempt — Texas <span class="lp-muted">(H-1B lottery-proof — apply here first)</span></h4>
-        <div class="lp-links grid3">${lpLinks(LP_CAPEXEMPT)}</div>
+        <div class="lp-links grid3">${lpCoLinks(LP_CAPEXEMPT, checks.checked)}</div>
         <h4 class="lp-sub">📍 Texas employers <span class="lp-muted">(home-field: UH-alumni density)</span></h4>
-        <div class="lp-links grid3">${lpLinks(LP_TEXAS)}</div>
+        <div class="lp-links grid3">${lpCoLinks(LP_TEXAS, checks.checked)}</div>
         <h4 class="lp-sub">🛢️ Houston energy majors <span class="lp-muted">(large local cloud/IT orgs)</span></h4>
-        <div class="lp-links grid3">${lpLinks(LP_ENERGY)}</div>
+        <div class="lp-links grid3">${lpCoLinks(LP_ENERGY, checks.checked)}</div>
         <h4 class="lp-sub">🏆 Big-tech &amp; cloud-product <span class="lp-muted">(best stack fit, sponsor at scale)</span></h4>
-        <div class="lp-links grid3">${lpLinks(LP_BIGTECH)}</div>
+        <div class="lp-links grid3">${lpCoLinks(LP_BIGTECH, checks.checked)}</div>
         <h4 class="lp-sub">💳 Fintech &amp; finance <span class="lp-muted">(heavy sponsors, big cloud/SRE orgs)</span></h4>
-        <div class="lp-links grid3">${lpLinks(LP_FINTECH)}</div>
+        <div class="lp-links grid3">${lpCoLinks(LP_FINTECH, checks.checked)}</div>
         <h4 class="lp-sub">🤝 Consultancies &amp; AWS partners <span class="lp-muted">(OPT→H-1B early-career tracks)</span></h4>
-        <div class="lp-links grid3">${lpLinks(LP_CONSULTANCY)}</div>
+        <div class="lp-links grid3">${lpCoLinks(LP_CONSULTANCY, checks.checked)}</div>
       </section>
 
     </div></div>`;
@@ -1336,6 +1361,20 @@ function renderLaunchpad(el) {
   const cb = $("#lp-copy-bool"); if (cb) cb.onclick = () => copy(LP_BOOLEAN, cb);
   const cs = $("#lp-copy-spon"); if (cs) cs.onclick = () => copy(LP_SPONSOR, cs);
   $$("#openings-view .lp-chip").forEach((c) => (c.onclick = () => copy(c.dataset.copytext, c, "Copied ✓")));
+  // Target-company daily checklist
+  const refreshProg = () => { const p = $("#lp-co-progress"); if (p) p.textContent = `${coDone()} / ${coTotal} done today`; };
+  $$("#openings-view .lp-co-chk").forEach((c) => (c.onchange = () => {
+    const s = lpChecks();
+    if (c.checked) s.checked[c.dataset.u] = true; else delete s.checked[c.dataset.u];
+    lpSaveChecks(s);
+    c.closest(".lp-co").classList.toggle("done", c.checked);
+    refreshProg();
+  }));
+  const rst = $("#lp-co-reset"); if (rst) rst.onclick = () => {
+    lpSaveChecks({ date: today(), checked: {} });
+    $$("#openings-view .lp-co-chk").forEach((c) => { c.checked = false; c.closest(".lp-co").classList.remove("done"); });
+    refreshProg();
+  };
 }
 function renderOpenings() {
   const el = $("#openings-view"); if (!el) return;

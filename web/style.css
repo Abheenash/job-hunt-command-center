@@ -556,3 +556,13 @@ input.op-f { flex: 1 1 220px; min-width: 180px; }
 .ro-item.soon { border-color: var(--orange-2); }
 .ro-count { background: var(--orange-2); color: #fff; border-radius: 999px; font-size: .7rem; font-weight: 600; padding: .05rem .45rem; margin-left: .35rem; vertical-align: middle; }
 @media (max-width: 720px) { .ro-row { grid-template-columns: 1fr 1fr; } .ro-row .ro-link, .ro-row .ro-email, .ro-row .ro-date { grid-column: auto; } }
+
+/* --- Target-company daily checklist --------------------------------------- */
+.lp-co-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+.lp-co-head h3 { margin: 0; }
+.lp-co-tools { display: flex; align-items: center; gap: .5rem; }
+.lp-co-prog { font-size: .8rem; font-weight: 600; color: var(--orange-2); background: #fff4e5; border-radius: 999px; padding: .15rem .6rem; white-space: nowrap; }
+.lp-co { display: flex; align-items: flex-start; gap: .5rem; }
+.lp-co .lp-co-chk { margin-top: .55rem; width: 1rem; height: 1rem; flex: none; cursor: pointer; accent-color: var(--ok); }
+.lp-co .lp-link { flex: 1; }
+.lp-co.done .lp-link { opacity: .5; text-decoration: line-through; }
