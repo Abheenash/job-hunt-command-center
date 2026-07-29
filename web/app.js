@@ -5,10 +5,10 @@ const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = (s) => (s == null ? "" : String(s)).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const LS = { id: "jhcc_id", access: "jhcc_access", refresh: "jhcc_refresh", email: "jhcc_email" };
 
-const STATUSES = ["applied", "screen", "interview", "offer", "rejected", "ghosted"];
+const STATUSES = ["pending", "applied", "screen", "interview", "offer", "rejected", "ghosted"];
 const US_STATES = ["Remote", "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY", "DC"];
 const FORM_FIELDS = ["company", "title", "dateApplied", "status", "priority", "location", "state", "workMode",
-  "seniority", "salary", "source", "url", "nextAction", "nextDue", "tags", "requiredSkills", "niceToHave"];
+  "seniority", "salary", "source", "url", "nextAction", "nextDue", "tags", "requiredSkills", "niceToHave", "notes"];
 // Local YYYY-MM-DD (viewer's own timezone) — NOT toISOString(), which is UTC and rolls the
 // date over in the evening for US viewers.
 const _ymd = (d) => { const p = (n) => String(n).padStart(2, "0"); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`; };
@@ -167,11 +167,11 @@ function renderList() {
 function ini(a) { return esc((a.company || "?").trim().charAt(0).toUpperCase() || "?"); }
 
 function card(a) {
-  const due = a.nextDue ? `<span class="due">⏰ ${esc(a.nextAction || "next")} · ${a.nextDue}</span>` : "";
+  const due = a.nextDue ? `<span class="due">${esc(a.nextAction || "next")} · ${a.nextDue}</span>` : "";
   const rod = reachDue(a); const roOver = reachOverdue(a);
-  const roDue = rod.length ? `<span class="due ro ${roOver ? "over" : ""}">📣 ${roOver ? "reach-out overdue" : rod.length + " reach-out" + (rod.length > 1 ? "s" : "") + " due"}</span>` : "";
+  const roDue = rod.length ? `<span class="due ro ${roOver ? "over" : ""}">${roOver ? "reach-out overdue" : rod.length + " reach-out" + (rod.length > 1 ? "s" : "") + " due"}</span>` : "";
   const spons = a.sponsorVerdict ? sponBadge(a) : (a.sponsors ? `<span class="tag sp">sponsors</span>` : "");
-  const ref = a.referralStatus === "Referral secured" ? `<span class="tag rf">★ referral</span>` : (a.referralStatus === "Reached out" ? `<span class="tag rf out">↗ outreach</span>` : "");
+  const ref = a.referralStatus === "Referral secured" ? `<span class="tag rf">referral</span>` : (a.referralStatus === "Reached out" ? `<span class="tag rf out">outreach</span>` : "");
   const st = a.state ? `<span class="tag st">${esc(a.state)}</span>` : "";
   const mt = a.matchPercent != null ? `<span class="tag mt ${a.matchPercent >= 75 ? "good" : a.matchPercent >= 50 ? "ok" : "low"}">${a.matchPercent}% match</span>` : "";
   const pr = a.priority ? `<span class="tag pr ${a.priority.toLowerCase()}">${esc(a.priority)}</span>` : "";
@@ -179,7 +179,7 @@ function card(a) {
   return `<article class="card" data-id="${a.appId}">
     <div class="card-h"><span class="card-ico">${ini(a)}</span><b>${esc(a.company || "—")}</b><span class="pill ${a.status}">${a.status}</span></div>
     <div class="role">${esc(a.title || "")}</div>
-    <div class="meta">${esc(a.dateApplied || "")}${a.location ? " · " + esc(a.location) : ""}${a.workMode ? " · " + esc(a.workMode) : ""}</div>
+    <div class="meta">${esc(a.dateApplied || "")}${a.location ? " · " + esc(a.location) : ""}${a.workMode ? " · " + esc(a.workMode) : ""}${a.url ? ` · <a class="card-link" href="${esc(a.url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">posting</a>` : ""}</div>
     <div class="tags">${pr}${mt}${st}${spons}${ref}${tags}</div>${due}${roDue}</article>`;
 }
 
@@ -188,7 +188,7 @@ function renderActivity() {
   APPS.forEach((a) => { if (a.dateApplied) byDate[a.dateApplied] = (byDate[a.dateApplied] || 0) + 1; });
   const dates = Object.keys(byDate).sort().reverse();
   const max = Math.max(1, ...Object.values(byDate));
-  $("#activity").innerHTML = `<div class="act-head">📅 Applications by date <span class="filenote">click a date to filter</span></div>` +
+  $("#activity").innerHTML = `<div class="act-head">Applications by date <span class="filenote">click a date to filter</span></div>` +
     (dates.length ? dates.map((d) =>
       `<div class="act-row ${filterDate === d ? "on" : ""}" data-d="${d}"><span class="act-date">${esc(d)}</span><span class="act-bar"><i style="width:${(byDate[d] / max) * 100}%"></i></span><b class="act-n">${byDate[d]}</b></div>`).join("")
       : `<p class="filenote">No dates yet.</p>`);
@@ -228,13 +228,13 @@ function renderTodo() {
     const soon = r.when && r.when === t;
     const when = r.when ? (overdue ? `overdue · ${r.when}` : soon ? `due today` : `due ${r.when}`) : "no date";
     const pr = a.priority ? `<span class="tag pr ${a.priority.toLowerCase()}">${esc(a.priority)}</span>` : "";
-    const icon = r.kind === "reachout" ? "📣" : "⏰";
+    const icon = r.kind === "reachout" ? "" : "";
     return `<div class="todo-row ${overdue ? "over" : soon ? "soon" : ""}" data-id="${a.appId}">
       <span class="todo-when">${esc(when)}</span>
       <div class="todo-main"><b>${esc(a.company || "—")}</b> — ${esc(a.title || "")}<div class="todo-act">${icon} ${esc(r.label)}</div></div>
       <span class="pill ${a.status}">${a.status}</span>${pr}</div>`;
   }).join("") : `<p class="empty">Nothing due. Add a <b>reach-out date</b> or a <b>next action + due date</b> to an application to see it here.</p>`;
-  $("#todo-view").innerHTML = `<div class="page-head"><div><h1>⏰ Follow-ups &amp; reach-outs</h1><p class="sub">Reach-outs (📣) and follow-ups (⏰), soonest first. Overdue in red — clear these before applying to anything new.</p></div></div>
+  $("#todo-view").innerHTML = `<div class="page-head"><div><h1>Follow-ups &amp; reach-outs</h1><p class="sub">Reach-outs () and follow-ups (), soonest first. Overdue in red — clear these before applying to anything new.</p></div></div>
     <div class="container"><div class="todo-list">${body}</div></div>`;
   $$("#todo-view .todo-row").forEach((r) => (r.onclick = () => openDetail(r.dataset.id)));
 }
@@ -268,16 +268,16 @@ function reachOutCard(a) {
   const t = today();
   const ros = getReachOuts(a);
   if (!ros.length) {
-    return `<div class="container ro-card"><div class="container-head">📣 Reach out</div><div class="container-body">
+    return `<div class="container ro-card"><div class="container-head">Reach out</div><div class="container-body">
       <p class="muted">No one added yet. A referral converts far better than a cold app — add the people to contact for this role.</p>
-      <button class="btn primary" id="ro-edit">＋ Add people</button></div></div>`;
+      <button class="btn primary" id="ro-edit">Add people</button></div></div>`;
   }
   const items = ros.map((r, i) => {
     const overdue = r.due && r.due < t, soon = r.due && r.due === t;
-    const dueTxt = r.due ? (overdue ? `⚠ overdue · ${r.due}` : soon ? `due today` : `by ${r.due}`) : "";
+    const dueTxt = r.due ? (overdue ? `overdue · ${r.due}` : soon ? `due today` : `by ${r.due}`) : "";
     const links = [
       r.link ? `<a class="btn sm" href="${esc(r.link)}" target="_blank" rel="noopener">Open profile</a>` : "",
-      r.email ? `<a class="btn sm" href="mailto:${esc(r.email)}">✉ Email</a>` : "",
+      r.email ? `<a class="btn sm" href="mailto:${esc(r.email)}">Email</a>` : "",
     ].filter(Boolean).join(" ");
     return `<div class="ro-item ${overdue ? "over" : soon ? "soon" : ""}">
       <div class="ro-who">${r.name ? `<b>${esc(r.name)}</b>` : `<span class="muted">(no name)</span>`}${dueTxt ? ` <span class="ro-due ${overdue ? "over" : soon ? "soon" : ""}">${esc(dueTxt)}</span>` : ""}</div>
@@ -285,9 +285,9 @@ function reachOutCard(a) {
       ${r.msg ? `<pre class="ro-msg">${esc(r.msg)}</pre><div class="ro-actions"><button class="btn sm ro-copy" data-i="${i}">Copy message</button></div>` : ""}
     </div>`;
   }).join("");
-  return `<div class="container ro-card"><div class="container-head">📣 Reach out <span class="ro-count">${ros.length}</span></div>
+  return `<div class="container ro-card"><div class="container-head">Reach out <span class="ro-count">${ros.length}</span></div>
     <div class="container-body">${items}
-      <div class="ro-actions" style="margin-top:.6rem"><button class="btn sm" id="ro-edit">✎ Edit people</button></div>
+      <div class="ro-actions" style="margin-top:.6rem"><button class="btn sm" id="ro-edit">Edit people</button></div>
     </div></div>`;
 }
 
@@ -310,22 +310,22 @@ function renderDetail(a) {
       <div><div class="lede">${esc(a.title || "")}</div><h1>${esc(a.company || "—")}</h1>
         <span class="pill ${a.status}">${esc(a.status)}</span>${a.state ? ` <span class="tag st">${esc(a.state)}</span>` : ""}${a.sponsorVerdict ? " " + sponBadge(a) : (a.sponsors ? ` <span class="tag sp">sponsors OPT</span>` : "")}</div>
       <div class="detail-actions">
-        ${a.url ? `<a class="btn" href="${esc(a.url)}" target="_blank" rel="noopener">Posting</a>` : ""}
-        <button class="btn" id="d-edit">✎ Edit</button>
-        <button class="btn danger" id="d-del">🗑 Delete</button>
+        <button class="btn" id="d-edit">Edit</button>
+        <button class="btn danger" id="d-del">Delete</button>
       </div>
     </div>
     <div class="detail-grid">
       <div class="detail-main">
-        <div class="container"><div class="container-head">🛂 Visa sponsorship</div><div class="container-body" id="d-spon">${sponInner(a)}</div></div>
-        <div class="container"><div class="container-head">🎯 JD ↔ résumé match</div><div class="container-body" id="d-match">${matchInner(a)}</div></div>
-        <div class="container"><div class="container-head">🎤 Interview prep</div><div class="container-body" id="d-prep">${prepInner(a)}</div></div>
-        ${skillsBody ? `<div class="container"><div class="container-head">🧩 Skills &amp; tags</div><div class="container-body">${skillsBody}</div></div>` : ""}
-        ${a.jd ? `<div class="container"><div class="container-head">📄 Job description</div><div class="container-body"><pre class="jd-text">${esc(a.jd)}</pre></div></div>` : ""}
-        <div class="container"><div class="container-head">📎 Documents</div><div class="container-body">
-          ${docs.length ? `<div class="doclist">${docs.map((d) => `<a href="#" data-key="${esc(d.docKey)}">📄 ${esc(d.filename || "document")}</a>`).join("")}</div>` : `<p class="muted">No résumé attached. Use Edit to add the one you applied with.</p>`}
+        <div class="container"><div class="container-head">Visa sponsorship</div><div class="container-body" id="d-spon">${sponInner(a)}</div></div>
+        <div class="container"><div class="container-head">JD ↔ résumé match</div><div class="container-body" id="d-match">${matchInner(a)}</div></div>
+        <div class="container"><div class="container-head">Interview prep</div><div class="container-body" id="d-prep">${prepInner(a)}</div></div>
+        ${skillsBody ? `<div class="container"><div class="container-head">Skills &amp; tags</div><div class="container-body">${skillsBody}</div></div>` : ""}
+        ${a.notes ? `<div class="container"><div class="container-head">Notes</div><div class="container-body"><pre class="jd-text">${esc(a.notes)}</pre></div></div>` : ""}
+        ${a.jd ? `<div class="container"><div class="container-head">Job description</div><div class="container-body"><pre class="jd-text">${esc(a.jd)}</pre></div></div>` : ""}
+        <div class="container"><div class="container-head">Documents</div><div class="container-body">
+          ${docs.length ? `<div class="doclist">${docs.map((d) => `<a href="#" data-key="${esc(d.docKey)}">${esc(d.filename || "document")}</a>`).join("")}</div>` : `<p class="muted">No résumé attached. Use Edit to add the one you applied with.</p>`}
         </div></div>
-        ${timeline.length ? `<div class="container"><div class="container-head">🕘 Activity</div><div class="container-body"><ul class="timeline">${timeline.map((t) => `<li><span class="tl-date">${t.at ? esc(fmtDate(t.at)) : ""}</span>${esc(t.event || "")}</li>`).join("")}</ul></div></div>` : ""}
+        ${timeline.length ? `<div class="container"><div class="container-head">Activity</div><div class="container-body"><ul class="timeline">${timeline.map((t) => `<li><span class="tl-date">${t.at ? esc(fmtDate(t.at)) : ""}</span>${esc(t.event || "")}</li>`).join("")}</ul></div></div>` : ""}
       </div>
       <div class="detail-side">
         <div class="container"><div class="container-head">Overview</div><div class="container-body kv">
@@ -338,6 +338,7 @@ function renderDetail(a) {
           ${kvRow("Seniority", a.seniority)}
           ${kvRow("Salary", a.salary)}
           ${kvRow("Source", a.source)}
+          ${a.url ? `<div><span>Posting</span><b><a href="${esc(a.url)}" target="_blank" rel="noopener">Open posting</a></b></div>` : ""}
           ${kvRow("Sponsors OPT", a.sponsors ? "yes" : "")}
           ${kvRow("Next action", a.nextAction)}
           ${kvRow("Due", a.nextDue)}
@@ -353,7 +354,7 @@ function renderDetail(a) {
   $$("#detail-view .ro-copy").forEach((b) => (b.onclick = () => {
     const msg = (ros[+b.dataset.i] || {}).msg || "";
     const w = navigator.clipboard && navigator.clipboard.writeText ? navigator.clipboard.writeText(msg) : Promise.reject();
-    w.then(() => { b.textContent = "Copied ✓"; setTimeout(() => (b.textContent = "Copy message"), 1200); }).catch(() => window.prompt("Copy:", msg));
+    w.then(() => { b.textContent = "Copied "; setTimeout(() => (b.textContent = "Copy message"), 1200); }).catch(() => window.prompt("Copy:", msg));
   }));
   const roEdit = $("#ro-edit"); if (roEdit) roEdit.onclick = () => openEdit(a.appId);
 
@@ -377,23 +378,23 @@ function matchInner(a) {
   if (!a.jd) return `<p class="muted">Add the job description (via <b>Edit</b>) to run a match check.</p>`;
   if (!hasResume) return `<p class="muted">Attach the résumé you applied with (via <b>Edit</b>) to run a match check.</p>`;
   return `<p class="muted">Compare this JD against your uploaded résumé — AI scores the fit and shows your gaps.</p>
-    <button class="btn primary" id="d-match-btn">🎯 Run match check</button> <span id="d-match-msg" class="filenote"></span>`;
+    <button class="btn primary" id="d-match-btn">Run match check</button> <span id="d-match-msg" class="filenote"></span>`;
 }
 function matchResult(a) {
   const p = a.matchPercent || 0;
   const cls = p >= 75 ? "good" : p >= 50 ? "ok" : "low";
   const list = (arr, sym) => (arr || []).map((m) => `<li>${sym} ${esc(m)}</li>`).join("");
   const atsOk = (a.atsScore != null && a.atsScore >= 75);
-  const ats = a.atsScore != null ? `<div class="filenote" style="margin-top:.4rem">ATS keyword match · <b class="${atsOk ? "ats-ok" : "ats-lo"}">${a.atsScore}%</b> ${atsOk ? "✓" : "(aim ≥75%)"}</div>` : "";
+  const ats = a.atsScore != null ? `<div class="filenote" style="margin-top:.4rem">ATS keyword match · <b class="${atsOk ? "ats-ok" : "ats-lo"}">${a.atsScore}%</b> ${atsOk ? "" : "(aim ≥75%)"}</div>` : "";
   return `<div class="match ${cls}">
       <div class="match-score"><b>${p}%</b><span>weighted fit</span></div>
       <div class="match-main"><div class="match-bar"><i style="width:${p}%"></i></div><p>${esc(a.matchSummary || "")}</p>${breakdownHtml(a.scoreBreakdown)}${ats}</div>
     </div>
     ${(a.matchMatched || []).length || (a.matchMissing || []).length ? `<div class="match-lists">
-      <div class="match-good"><h4>✓ Strengths</h4><ul>${list(a.matchMatched, "")}</ul></div>
-      <div class="match-gap"><h4>△ Missing keywords</h4><ul>${list(a.matchMissing, "")}</ul></div>
+      <div class="match-good"><h4>Strengths</h4><ul>${list(a.matchMatched, "")}</ul></div>
+      <div class="match-gap"><h4>Missing keywords</h4><ul>${list(a.matchMissing, "")}</ul></div>
     </div>` : ""}
-    <button class="btn sm" id="d-match-btn">↻ Re-run</button> <span id="d-match-msg" class="filenote"></span>`;
+    <button class="btn sm" id="d-match-btn">Re-run</button> <span id="d-match-msg" class="filenote"></span>`;
 }
 async function runMatch(id) {
   const btn = $("#d-match-btn"), msg = $("#d-match-msg");
@@ -407,7 +408,7 @@ async function runMatch(id) {
 
 // ---------- visa sponsorship -----------------------------------------------
 const SPON_CLASS = { likely: "sp-good", possible: "sp-ok", capexempt: "sp-exempt", caution: "sp-warn", rare: "sp-warn", none: "sp-none", unlikely: "sp-bad", unknown: "sp-none" };
-const SPON_ICON = { likely: "✓", possible: "≈", capexempt: "★", caution: "⚠", rare: "⚠", none: "∅", unlikely: "✗", unknown: "?" };
+const SPON_ICON = { likely: "", possible: "", capexempt: "", caution: "", rare: "", none: "", unlikely: "", unknown: "?" };
 
 function sponLinksFor(company) {
   const q = encodeURIComponent((company || "").trim());
@@ -443,11 +444,11 @@ function sponVerdictHtml(v, company, capExempt, label, level) {
 function sponInner(a) {
   if (a.sponsorVerdict) {
     return sponVerdictHtml({ reasons: a.sponsorReasons, h1b: a.sponsorH1b }, a.company, a.sponsorCapExempt, a.sponsorLabel, a.sponsorVerdict)
-      + `<button class="btn sm" id="d-spon-btn">↻ Re-check</button> <span id="d-spon-msg" class="filenote"></span>`;
+      + `<button class="btn sm" id="d-spon-btn">Re-check</button> <span id="d-spon-msg" class="filenote"></span>`;
   }
   if (!a.company) return `<p class="muted">Add the company name (via <b>Edit</b>) to check visa sponsorship.</p>`;
   return `<p class="muted">Scan this employer's H-1B track record and the JD's sponsorship language — no more bouncing between h1bdata / myvisajobs.</p>
-    <button class="btn primary" id="d-spon-btn">🛂 Check sponsorship</button> <span id="d-spon-msg" class="filenote"></span>`;
+    <button class="btn primary" id="d-spon-btn">Check sponsorship</button> <span id="d-spon-msg" class="filenote"></span>`;
 }
 async function runSponsor(id) {
   const btn = $("#d-spon-btn"), msg = $("#d-spon-msg");
@@ -464,13 +465,13 @@ async function checkSponsorEdit() {
   const company = $("#app-form").company.value.trim();
   const jd = $("#jd").value.trim();
   const out = $("#spon-out"); out.hidden = false;
-  if (!company) { out.innerHTML = `<p class="err">Enter the company name first (or ✨ Autofill from the JD).</p>`; return; }
+  if (!company) { out.innerHTML = `<p class="err">Enter the company name first (or Autofill from the JD).</p>`; return; }
   const btn = $("#check-spon"); btn.disabled = true;
-  out.innerHTML = `<p class="gen-loading">🛂 Checking ${esc(company)}'s H-1B track record…</p>`;
+  out.innerHTML = `<p class="gen-loading">Checking ${esc(company)}'s H-1B track record…</p>`;
   try {
     const { sponsorship: s } = await api("POST", "/sponsorship", { company, jd });
     out.innerHTML = sponVerdictHtml(s, company, s.capExempt, s.label, s.level)
-      + (s.sponsors ? `<p class="filenote">✓ Ticked “Sponsors / accepts OPT” — save to keep it on this application.</p>` : "");
+      + (s.sponsors ? `<p class="filenote">Ticked “Sponsors / accepts OPT” — save to keep it on this application.</p>` : "");
     if (s.sponsors) $("#app-form").sponsors.checked = true;
   } catch (e) { out.innerHTML = `<p class="err">${esc(e.message)}</p>`; }
   finally { btn.disabled = false; }
@@ -482,19 +483,19 @@ function prepInner(a) {
   if (!a.jd) return `<p class="muted">Add the job description (via <b>Edit</b>) to generate tailored interview prep.</p>`;
   const hasR = (a.documents || []).length > 0;
   return `<p class="muted">Turn this JD${hasR ? " + your résumé" : ""} into likely questions, talking points from your background, and sharp questions to ask them.</p>
-    <button class="btn primary" id="d-prep-btn">🎤 Generate interview prep</button> <span id="d-prep-msg" class="filenote"></span>`;
+    <button class="btn primary" id="d-prep-btn">Generate interview prep</button> <span id="d-prep-msg" class="filenote"></span>`;
 }
 function prepResult(a) {
   const p = a.interviewPrep || {};
   const qs = (arr, sub) => (arr || []).map((x) => `<li><b>${esc(x.q)}</b>${x[sub] ? `<span class="prep-hint">${esc(x[sub])}</span>` : ""}</li>`).join("");
   const plain = (arr) => (arr || []).map((x) => `<li>${esc(x)}</li>`).join("");
   const sec = (title, body, cls) => body ? `<div class="prep-sec ${cls || ""}"><h4>${title}</h4><ul>${body}</ul></div>` : "";
-  return sec("💻 Technical", qs(p.technical, "hint"))
-    + sec("🗣️ Behavioral", qs(p.behavioral, "angle"))
-    + sec("⭐ Your talking points", plain(p.talkingPoints), "prep-good")
-    + sec("△ Likely gaps to prep", plain(p.gaps), "prep-gap")
-    + sec("❓ Ask them", plain(p.askThem))
-    + `<button class="btn sm" id="d-prep-btn">↻ Regenerate</button> <span id="d-prep-msg" class="filenote"></span>`;
+  return sec("Technical", qs(p.technical, "hint"))
+    + sec("Behavioral", qs(p.behavioral, "angle"))
+    + sec("Your talking points", plain(p.talkingPoints), "prep-good")
+    + sec("Likely gaps to prep", plain(p.gaps), "prep-gap")
+    + sec("Ask them", plain(p.askThem))
+    + `<button class="btn sm" id="d-prep-btn">Regenerate</button> <span id="d-prep-msg" class="filenote"></span>`;
 }
 async function runPrep(id) {
   const btn = $("#d-prep-btn"), msg = $("#d-prep-msg");
@@ -533,7 +534,7 @@ const today = () => _ymd(new Date());  // local date (viewer's timezone), not UT
 
 function renderDocs(docs) {
   $("#docs").innerHTML = docs.length
-    ? "<div class='doclist'>" + docs.map((d) => `<a href="#" data-key="${esc(d.docKey)}">📄 ${esc(d.filename || "document")}</a>`).join("") + "</div>" : "";
+    ? "<div class='doclist'>" + docs.map((d) => `<a href="#" data-key="${esc(d.docKey)}">${esc(d.filename || "document")}</a>`).join("") + "</div>" : "";
   $$("#docs a").forEach((el) => (el.onclick = async (e) => {
     e.preventDefault();
     const j = await api("GET", "/download?key=" + encodeURIComponent(el.dataset.key));
@@ -544,13 +545,13 @@ function renderDocs(docs) {
 async function autofill() {
   const jd = $("#jd").value.trim();
   if (jd.length < 20) { $("#autofill-status").textContent = "Paste a longer JD first."; return; }
-  $("#autofill").disabled = true; $("#autofill-status").textContent = "✨ Reading the JD…";
+  $("#autofill").disabled = true; $("#autofill-status").textContent = "Reading the JD…";
   try {
     const { fields, attributes } = await api("POST", "/parse-jd", { jd });
     const f = $("#app-form");
     Object.entries(fields || {}).forEach(([k, v]) => { if (f[k] != null && v) f[k].value = v; });
     mergeCustomFields(attributes);
-    $("#autofill-status").textContent = "Filled ✓ — review and save.";
+    $("#autofill-status").textContent = "Filled — review and save.";
   } catch (e) { $("#autofill-status").textContent = e.message; }
   finally { $("#autofill").disabled = false; }
 }
@@ -569,7 +570,7 @@ async function generateResume() {
   const btn = $("#gen-resume");
   btn.disabled = true;
   const mName = { sonnet: "Sonnet", haiku: "Haiku", opus: "Opus" }[$("#gen-model").value] || "Sonnet";
-  out.innerHTML = `<p class="gen-loading">📄 ${mName} is rewriting your résumé for this JD — picking projects, tailoring bullets & skills… <span class="filenote">(~20–45s)</span></p>`;
+  out.innerHTML = `<p class="gen-loading">${mName} is rewriting your résumé for this JD — picking projects, tailoring bullets & skills… <span class="filenote">(~20–45s)</span></p>`;
   try {
     // Opus can exceed the API's 30s cap, so this is async: start a job, then poll.
     const { jobId } = await api("POST", "/generate-resume", {
@@ -607,9 +608,9 @@ const gchips = (list, cls) => (list && list.length ? list.map((x) => `<span clas
 const atsChips = (list) => (list && list.length ? list.map((x) => `<span class="gchip miss">${esc(x)} <button type="button" class="gchip-add" data-kw="${esc(x)}" title="I have this — add to my skills for future résumés">+</button></span>`).join("") : `<span class="filenote">none</span>`);
 
 function pdfHtml(r) {
-  if (r.pdfUrl) return `<a class="btn primary" href="${esc(r.pdfUrl)}" target="_blank" rel="noopener">⬇ Download PDF${r.pages ? ` · ${r.pages}p` : ""}</a>`
-    + (r.coverPdfUrl ? ` <a class="btn" href="${esc(r.coverPdfUrl)}" target="_blank" rel="noopener">⬇ Cover PDF</a>` : "");
-  if (r.pdfStatus === "compiling") return `<span class="filenote">📄 Compiling PDF…</span>`;
+  if (r.pdfUrl) return `<a class="btn primary" href="${esc(r.pdfUrl)}" target="_blank" rel="noopener">Download PDF${r.pages ? ` · ${r.pages}p` : ""}</a>`
+    + (r.coverPdfUrl ? ` <a class="btn" href="${esc(r.coverPdfUrl)}" target="_blank" rel="noopener">Cover PDF</a>` : "");
+  if (r.pdfStatus === "compiling") return `<span class="filenote">Compiling PDF…</span>`;
   return `<span class="filenote">Server PDF unavailable — download the .tex and compile locally.</span>`;
 }
 function updatePdfUi(r) { const el = $("#gen-pdf"); if (el) el.innerHTML = pdfHtml(r); }
@@ -624,27 +625,27 @@ function renderGenOut(r) {
   const out = $("#gen-out");
   const projs = (r.selectedProjects || []).map((p) => esc((p.name || "").replace(/\\&/g, "&"))).join(" · ");
   const atsOk = (r.atsScore != null && r.atsScore >= 75);
-  const atsLabel = r.atsScore != null ? ` · <b class="${atsOk ? "ats-ok" : "ats-lo"}">${r.atsScore}%</b> ${atsOk ? "✓" : "(aim ≥75%)"}` : "";
+  const atsLabel = r.atsScore != null ? ` · <b class="${atsOk ? "ats-ok" : "ats-lo"}">${r.atsScore}%</b> ${atsOk ? "" : "(aim ≥75%)"}` : "";
   out.innerHTML = `
     <div class="gen-top">
       <div class="gen-score"><b>${r.matchPercent != null ? r.matchPercent + "%" : "—"}</b><span>weighted fit</span></div>
       <div class="gen-meta"><b>Projects picked:</b> ${projs || "—"} ${r.model ? `<span class="gen-badge">${esc(r.model)}</span>` : ""}<div class="filenote">${esc(r.rationale || "")}</div>${breakdownHtml(r.scoreBreakdown)}</div>
     </div>
     <div class="gen-cols">
-      <div><div class="gen-h">✓ Matched</div>${gchips(r.matched, "ok")}</div>
-      <div><div class="gen-h">⚠ Gaps</div>${gchips(r.gaps, "gap")}</div>
+      <div><div class="gen-h">Matched</div>${gchips(r.matched, "ok")}</div>
+      <div><div class="gen-h">Gaps</div>${gchips(r.gaps, "gap")}</div>
       <div><div class="gen-h">ATS keywords${atsLabel} · “+” if you have it</div>${atsChips(r.atsMissing)}</div>
     </div>
     <div class="gen-actions">
       <span id="gen-pdf">${pdfHtml(r)}</span>
-      <button type="button" class="btn" id="gen-dl">⬇ .tex</button>
-      <button type="button" class="btn" id="gen-copy">⧉ Copy LaTeX</button>
-      ${r.coverLetterLatex ? `<button type="button" class="btn" id="gen-dl-cover">⬇ Cover .tex</button>` : ""}
-      <button type="button" class="btn" id="gen-regen" title="Re-run — includes any skills you just confirmed">↻ Regenerate</button>
+      <button type="button" class="btn" id="gen-dl">.tex</button>
+      <button type="button" class="btn" id="gen-copy">Copy LaTeX</button>
+      ${r.coverLetterLatex ? `<button type="button" class="btn" id="gen-dl-cover">Cover .tex</button>` : ""}
+      <button type="button" class="btn" id="gen-regen" title="Re-run — includes any skills you just confirmed">Regenerate</button>
     </div>
     <details class="gen-src"><summary>Preview LaTeX</summary><pre>${esc(r.resumeLatex || "")}</pre></details>`;
   $("#gen-dl").onclick = () => downloadText("resume-tailored.tex", lastGen.resumeLatex || r.resumeLatex);
-  $("#gen-copy").onclick = () => navigator.clipboard.writeText(lastGen.resumeLatex || r.resumeLatex || "").then(() => ($("#gen-copy").textContent = "Copied ✓"));
+  $("#gen-copy").onclick = () => navigator.clipboard.writeText(lastGen.resumeLatex || r.resumeLatex || "").then(() => ($("#gen-copy").textContent = "Copied "));
   if (r.coverLetterLatex) $("#gen-dl-cover").onclick = () => downloadText("cover-letter.tex", lastGen.coverLetterLatex || r.coverLetterLatex);
   $("#gen-regen").onclick = generateResume;
   $$("#gen-out .gchip-add").forEach((b) => (b.onclick = () => addSkill(b.dataset.kw, b)));
@@ -662,7 +663,7 @@ async function pollPdf(jobId) {
 // ATS "I have this" -> persist to my confirmed skills so future résumés can use it.
 async function addSkill(kw, btn) {
   btn.disabled = true; const old = btn.textContent; btn.textContent = "…";
-  try { await api("POST", "/profile-skills", { skill: kw }); btn.textContent = "✓"; btn.title = "Added — future résumés can use it"; }
+  try { await api("POST", "/profile-skills", { skill: kw }); btn.textContent = ""; btn.title = "Added — future résumés can use it"; }
   catch (_e) { btn.textContent = old; btn.disabled = false; }
 }
 
@@ -678,7 +679,7 @@ function cfRow(key = "", value = "") {
   row.className = "cf-row";
   row.innerHTML = `<input class="cf-k" placeholder="Field (e.g. Clearance)" value="${esc(key)}" />
     <input class="cf-v" placeholder="Value (e.g. TS/SCI)" value="${esc(value)}" />
-    <button type="button" class="cf-del" title="Remove field">✕</button>`;
+    <button type="button" class="cf-del" title="Remove field"></button>`;
   row.querySelector(".cf-del").onclick = () => row.remove();
   return row;
 }
@@ -699,7 +700,7 @@ function roRow(e = {}) {
     <input class="ro-link" type="url" placeholder="LinkedIn profile URL" value="${esc(e.link || "")}" />
     <input class="ro-email" type="email" placeholder="Email" value="${esc(e.email || "")}" />
     <input class="ro-date" type="date" title="Reach out by" value="${esc(e.due || "")}" />
-    <button type="button" class="ro-del" title="Remove person">✕</button>
+    <button type="button" class="ro-del" title="Remove person"></button>
     <textarea class="ro-msg-in" rows="3" placeholder="Reach-out message…">${esc(e.msg || "")}</textarea>`;
   row.querySelector(".ro-del").onclick = () => row.remove();
   return row;
@@ -791,7 +792,7 @@ function exportCsv() {
 }
 
 // ---------- conversion analytics -------------------------------------------
-const _RANK = { applied: 1, screen: 2, interview: 3, offer: 4, rejected: 1, ghosted: 1 };
+const _RANK = { pending: 0, applied: 1, screen: 2, interview: 3, offer: 4, rejected: 1, ghosted: 1 };
 function _maxStage(a) {
   // best stage reached: current status, or any stage its timeline mentions (so a
   // now-rejected app that was interviewed still counts toward the interview stage)
@@ -806,7 +807,7 @@ function _maxStage(a) {
 }
 function renderAnalytics() {
   const el = $("#analytics"); const n = APPS.length;
-  if (!n) { el.innerHTML = `<div class="container-head">📊 Analytics</div><div class="container-body"><p class="muted">Log some applications to see analytics.</p></div>`; return; }
+  if (!n) { el.innerHTML = `<div class="container-head">Analytics</div><div class="container-body"><p class="muted">Log some applications to see analytics.</p></div>`; return; }
   const pct = (a, b) => (b ? Math.round(100 * a / b) : 0);
   const atLeast = (lvl) => APPS.filter((a) => _maxStage(a) >= lvl).length;
   const applied = n, screen = atLeast(2), interview = atLeast(3), offer = atLeast(4);
@@ -817,12 +818,12 @@ function renderAnalytics() {
   const avg = (arr) => (arr.length ? Math.round(arr.reduce((x, y) => x + y, 0) / arr.length) : null);
   const iAvg = avg(scored.filter((a) => _maxStage(a) >= 3).map((a) => a.matchPercent));
   const nAvg = avg(scored.filter((a) => _maxStage(a) < 3).map((a) => a.matchPercent));
-  el.innerHTML = `<div class="container-head">📊 Analytics <span class="filenote">— best stage reached per application</span></div><div class="container-body">
+  el.innerHTML = `<div class="container-head">Analytics <span class="filenote">— best stage reached per application</span></div><div class="container-body">
     <div class="an-funnel">${funnel.map(([k, v, p]) => `<div class="an-row"><span class="an-k">${k}</span><span class="an-bar"><i style="width:${Math.max(2, p)}%"></i></span><span class="an-v">${v} · ${p}%</span></div>`).join("")}</div>
     <h4 class="an-h">By source</h4>
     <table class="an-tbl"><tr><th>Source</th><th>Apps</th><th>Response</th><th>Interview</th></tr>
     ${Object.entries(bySrc).sort((a, b) => b[1].n - a[1].n).map(([s, d]) => `<tr><td>${esc(s)}</td><td>${d.n}</td><td>${pct(d.resp, d.n)}%</td><td>${pct(d.intv, d.n)}%</td></tr>`).join("")}</table>
-    ${scored.length >= 2 ? `<h4 class="an-h">Résumé match vs. outcome</h4><p class="filenote">Avg match of apps that reached interview: <b>${iAvg != null ? iAvg + "%" : "—"}</b> · that didn't: <b>${nAvg != null ? nAvg + "%" : "—"}</b>${(iAvg != null && nAvg != null && iAvg > nAvg) ? " — higher-match résumés are converting better ✓" : ""}</p>` : ""}
+    ${scored.length >= 2 ? `<h4 class="an-h">Résumé match vs. outcome</h4><p class="filenote">Avg match of apps that reached interview: <b>${iAvg != null ? iAvg + "%" : "—"}</b> · that didn't: <b>${nAvg != null ? nAvg + "%" : "—"}</b>${(iAvg != null && nAvg != null && iAvg > nAvg) ? " — higher-match résumés are converting better " : ""}</p>` : ""}
   </div>`;
 }
 
@@ -831,14 +832,14 @@ async function changePassword() {
   const msg = $("#pw-msg"); msg.className = "err"; msg.textContent = "";
   try {
     await cognito("ChangePassword", { AccessToken: localStorage.getItem(LS.access), PreviousPassword: $("#pw-old").value, ProposedPassword: $("#pw-new").value });
-    msg.className = "ok"; msg.textContent = "Password updated ✓"; $("#pw-old").value = ""; $("#pw-new").value = "";
+    msg.className = "ok"; msg.textContent = "Password updated "; $("#pw-old").value = ""; $("#pw-new").value = "";
   } catch (e) { msg.textContent = e.message; }
 }
 
 // ---------- notifications (inbox findings) ---------------------------------
 let NOTIFS = [];
 const NOTIF_SEEN = "jhcc_notif_seen";
-const CAT_ICON = { interview: "📅", offer: "🎉", rejection: "🚫", recruiter_reply: "💬", confirmation: "✅" };
+const CAT_ICON = { interview: "", offer: "", rejection: "", recruiter_reply: "", confirmation: "" };
 async function loadNotifications() {
   try { NOTIFS = (await api("GET", "/notifications")).notifications || []; } catch (_e) { NOTIFS = []; }
   renderNotifBadge();
@@ -854,8 +855,8 @@ function renderNotifBadge() {
 function renderNotifList() {
   const l = $("#notif-list");
   l.innerHTML = NOTIFS.length ? NOTIFS.slice(0, 30).map((n) =>
-    `<button class="notif-item" data-app="${esc(n.appId || "")}"><span class="notif-cat">${CAT_ICON[n.category] || "📨"}</span>
-      <div><b>${esc(n.subject || "(no subject)")}</b><small>${n.action ? `<b class="notif-act">✓ ${esc(n.action)}</b> · ` : ""}${esc((n.category || "").replace(/_/g, " "))}${n.summary ? " — " + esc(n.summary) : ""}</small></div></button>`).join("")
+    `<button class="notif-item" data-app="${esc(n.appId || "")}"><span class="notif-cat">${CAT_ICON[n.category] || ""}</span>
+      <div><b>${esc(n.subject || "(no subject)")}</b><small>${n.action ? `<b class="notif-act">${esc(n.action)}</b> · ` : ""}${esc((n.category || "").replace(/_/g, " "))}${n.summary ? " — " + esc(n.summary) : ""}</small></div></button>`).join("")
     : `<p class="notif-empty">No inbox findings yet.<br><span class="filenote">Turn on Gmail scanning and recruiter replies, rejections &amp; interviews will appear here automatically.</span></p>`;
   $$("#notif-list .notif-item").forEach((el) => (el.onclick = () => { const id = el.dataset.app; $("#notif-pop").hidden = true; if (id && id !== "unmatched") openDetail(id); }));
 }
@@ -864,12 +865,12 @@ function renderNotifList() {
 function inboxRow(n) {
   const app = (n.appId && n.appId !== "unmatched") ? APPS.find((a) => a.appId === n.appId) : null;
   const when = n.receivedAt ? fmtDate(n.receivedAt) : "";
-  const linked = app ? `<span class="inbox-app">🔗 ${esc(app.company || "application")}</span>` : `<span class="inbox-unlinked">unlinked</span>`;
+  const linked = app ? `<span class="inbox-app">${esc(app.company || "application")}</span>` : `<span class="inbox-unlinked">unlinked</span>`;
   return `<article class="inbox-item${app ? " clickable" : ""}" data-app="${esc(n.appId || "")}">
-      <span class="inbox-cat">${CAT_ICON[n.category] || "📨"}</span>
+      <span class="inbox-cat">${CAT_ICON[n.category] || ""}</span>
       <div class="inbox-body">
         <div class="inbox-top"><b>${esc(n.subject || "(no subject)")}</b><span class="inbox-when">${esc(when)}</span></div>
-        <div class="inbox-meta"><span class="inbox-badge">${esc((n.category || "").replace(/_/g, " "))}</span> ${linked}${n.action ? ` · <b class="notif-act">✓ ${esc(n.action)}</b>` : ""}</div>
+        <div class="inbox-meta"><span class="inbox-badge">${esc((n.category || "").replace(/_/g, " "))}</span> ${linked}${n.action ? ` · <b class="notif-act">${esc(n.action)}</b>` : ""}</div>
         ${n.summary ? `<p class="inbox-summary">${esc(n.summary)}</p>` : ""}
         <div class="inbox-from">${esc(n.from || "")}</div>
       </div>
@@ -877,7 +878,7 @@ function inboxRow(n) {
 }
 function renderInbox() {
   const el = $("#inbox-view");
-  el.innerHTML = `<div class="page-head"><div><h1>📨 Inbox</h1><p class="sub">Job-related emails your scanner classified and linked to applications — recruiter replies, interviews, rejections, offers, confirmations. Click one to open its application.</p></div></div>
+  el.innerHTML = `<div class="page-head"><div><h1>Inbox</h1><p class="sub">Job-related emails your scanner classified and linked to applications — recruiter replies, interviews, rejections, offers, confirmations. Click one to open its application.</p></div></div>
     ${NOTIFS.length ? `<div class="inbox-list">${NOTIFS.map(inboxRow).join("")}</div>`
       : `<p class="empty">No job-related emails yet. Once your inbox scanner runs (or a recruiter / ATS emails you), interviews, rejections and confirmations show up here — automatically linked to the right application.</p>`}`;
   $$("#inbox-view .inbox-item.clickable").forEach((r) => (r.onclick = () => openDetail(r.dataset.app)));
@@ -914,8 +915,8 @@ async function loadOpenings() {
   if (currentView === "openings" && $("#openings-view") && !$("#openings-view").hidden) renderOpenings();
 }
 function opRisk(o) {
-  if (o.capExempt) return `<span class="op-spon ok" title="University/hospital — H-1B lottery-proof">🎓 Cap-exempt sponsor</span>`;
-  if (o.sponsorRisk === "low") return `<span class="op-spon ok">✓ sponsor-friendly</span>`;
+  if (o.capExempt) return `<span class="op-spon ok" title="University/hospital — H-1B lottery-proof">Cap-exempt sponsor</span>`;
+  if (o.sponsorRisk === "low") return `<span class="op-spon ok">sponsor-friendly</span>`;
   return `<span class="op-spon med">~ verify sponsorship</span>`;
 }
 function opFitClass(f) { return f >= 75 ? "good" : f >= 55 ? "ok" : "low"; }
@@ -927,17 +928,17 @@ function opSrcLabel(s) { return SRC_LABEL[s] || String(s || ""); }
 function opPlatKey(o) { const s = o.source || ""; return s.indexOf("github") === 0 ? "github" : s; }
 function opAvailPlatforms() { const s = new Set(); OPENINGS.forEach((o) => s.add(opPlatKey(o))); return [...s].filter(Boolean).sort(); }
 function opGeoPill(o) {
-  if (o.geo === 0) return `<span class="op-badge tx">📍 Texas</span>`;
-  if (o.geo === 1) return `<span class="op-badge rem">🏠 Remote</span>`;
+  if (o.geo === 0) return `<span class="op-badge tx">Texas</span>`;
+  if (o.geo === 1) return `<span class="op-badge rem">Remote</span>`;
   return "";
 }
 function opBadges(o) {
   const now = Math.floor(Date.now() / 1000);
   let h = "";
-  if (o.capExempt) h += `<span class="op-badge cap" title="Cap-exempt employer — no H-1B lottery">🎓 Cap-exempt</span>`;
-  if (o.staffing) h += `<span class="op-badge stf" title="Likely a staffing / consulting firm — verify before applying">⚠️ Staffing</span>`;
-  if (o.firstSeenAt && now - o.firstSeenAt < NEW_WINDOW) h += `<span class="op-badge new">🆕 New</span>`;
-  if (o.expireAt && o.expireAt - now < SOON_WINDOW) h += `<span class="op-badge soon" title="Aging out soon — Apply or Track it to keep it">⏳ Leaving soon</span>`;
+  if (o.capExempt) h += `<span class="op-badge cap" title="Cap-exempt employer — no H-1B lottery">Cap-exempt</span>`;
+  if (o.staffing) h += `<span class="op-badge stf" title="Likely a staffing / consulting firm — verify before applying">Staffing</span>`;
+  if (o.firstSeenAt && now - o.firstSeenAt < NEW_WINDOW) h += `<span class="op-badge new">New</span>`;
+  if (o.expireAt && o.expireAt - now < SOON_WINDOW) h += `<span class="op-badge soon" title="Aging out soon — Apply or Track it to keep it">Leaving soon</span>`;
   return h;
 }
 function opCard(o, i) {
@@ -955,26 +956,26 @@ function opCard(o, i) {
       <div class="op-fit ${opFitClass(fit)}" title="Match estimate from stack + seniority overlap — always verify the full JD"><b>${fit}%</b><span>fit</span></div>
       <a class="btn sm" href="${esc(o.url || "#")}" target="_blank" rel="noopener">Apply</a>
       <button class="btn sm primary op-track" data-id="${esc(o.id || "")}">+ Track</button>
-      <button class="btn sm ghost op-dismiss" data-id="${esc(o.id || "")}" title="Not interested — hide this">✕ Not interested</button>
+      <button class="btn sm ghost op-dismiss" data-id="${esc(o.id || "")}" title="Not interested — hide this">Not interested</button>
     </div>
   </article>`;
 }
 function opSourcesPanel() {
   return `<details class="op-sources">
-    <summary>ℹ️ Where these come from — and what to check yourself</summary>
+    <summary>ℹWhere these come from — and what to check yourself</summary>
     <div class="op-src-body">
       <div class="op-src-col">
-        <h4>✅ Auto-scanned daily (all sponsor-gated)</h4>
+        <h4>Auto-scanned daily (all sponsor-gated)</h4>
         <p>Refreshed every morning + on Rescan. Confirmed no-sponsorship roles are dropped:</p>
         <ul>
           <li><b>~65 sponsor-friendly companies</b> on Greenhouse / Ashby / Lever (Twilio, Cloudflare, Datadog, Stripe, Snowflake, Confluent, OpenAI, Palantir, Databricks, MongoDB…)</li>
           <li><b>Amazon / AWS</b> · <b>Red Hat</b> &amp; <b>Nvidia</b> (Workday)</li>
-          <li><b>GitHub 🛂 feeds</b> (SimplifyJobs + New-Grad-2027) — explicit sponsorship tags</li>
+          <li><b>GitHub feeds</b> (SimplifyJobs + New-Grad-2027) — explicit sponsorship tags</li>
           <li><b>Adzuna aggregator</b> — broad, incl. reposts of LinkedIn/Indeed roles (opt-in key)</li>
         </ul>
       </div>
       <div class="op-src-col">
-        <h4>🔍 Not covered — search these yourself</h4>
+        <h4>Not covered — search these yourself</h4>
         <ul>
           <li><b>LinkedIn Jobs &amp; Indeed</b> — biggest volume, and they carry OPT/visa filters</li>
           <li><b>Google, Microsoft, Meta, Apple, Salesforce, Nvidia, IBM, Cisco, Adobe</b> — custom / Workday portals not wired in</li>
@@ -983,11 +984,11 @@ function opSourcesPanel() {
         </ul>
       </div>
       <div class="op-src-col">
-        <h4>💡 How to search them fast</h4>
+        <h4>How to search them fast</h4>
         <ul>
           <li><b>LinkedIn:</b> <i>"cloud support engineer" OR devops OR "site reliability"</i> → filter <i>Past week</i> + <i>Entry/Associate</i> → save it as a job alert.</li>
           <li><b>Google dorks:</b> <code>site:boards.greenhouse.io ("devops" OR "sre") "united states"</code> — swap in <code>jobs.lever.co</code> or <code>jobs.ashbyhq.com</code>.</li>
-          <li><b>Check sponsorship first:</b> look a company up on myvisajobs.com / h1bgrader.com (or the 🛂 checker here), then go to its careers page.</li>
+          <li><b>Check sponsorship first:</b> look a company up on myvisajobs.com / h1bgrader.com (or the checker here), then go to its careers page.</li>
           <li><b>Wellfound</b> has a "will sponsor visa" toggle — fast filter.</li>
         </ul>
       </div>
@@ -1060,15 +1061,15 @@ function opSel(v, cur) { return v === cur ? " selected" : ""; }
 function opFilterBar() {
   const f = opFilters;
   const stateOpts = [`<option value=""${opSel("", f.state)}>All locations</option>`,
-    `<option value="Remote"${opSel("Remote", f.state)}>🏠 Remote</option>`]
-    .concat(opAvailStates().map((c) => `<option value="${c}"${opSel(c, f.state)}>${c}${c === "TX" ? " ★ Texas" : ""}</option>`)).join("");
+    `<option value="Remote"${opSel("Remote", f.state)}>Remote</option>`]
+    .concat(opAvailStates().map((c) => `<option value="${c}"${opSel(c, f.state)}>${c}${c === "TX" ? " Texas" : ""}</option>`)).join("");
   const opt = (pairs, cur) => pairs.map(([v, l]) => `<option value="${v}"${opSel(String(v), String(cur))}>${l}</option>`).join("");
   const platOpts = [`<option value=""${opSel("", f.platform)}>All sources</option>`]
     .concat(opAvailPlatforms().map((k) => `<option value="${k}"${opSel(k, f.platform)}>${PLAT_LABEL[k] || k}</option>`)).join("");
   return `<div class="op-filters">
-    <input id="opf-q" class="op-f" type="search" placeholder="🔎 Search company / title…" value="${esc(f.q)}">
+    <input id="opf-q" class="op-f" type="search" placeholder="Search company / title…" value="${esc(f.q)}">
     <select id="opf-state" class="op-f" title="Location / state">${stateOpts}</select>
-    <select id="opf-sponsor" class="op-f" title="Sponsorship">${opt([["", "All sponsorship"], ["friendly", "✓ Sponsor-friendly"], ["cap", "🎓 Cap-exempt"], ["verify", "~ Verify"]], f.sponsor)}</select>
+    <select id="opf-sponsor" class="op-f" title="Sponsorship">${opt([["", "All sponsorship"], ["friendly", "Sponsor-friendly"], ["cap", "Cap-exempt"], ["verify", "~ Verify"]], f.sponsor)}</select>
     <select id="opf-plat" class="op-f" title="Source / platform">${platOpts}</select>
     <select id="opf-fit" class="op-f" title="Minimum match %">${opt([[0, "Any match %"], [50, "50%+ match"], [70, "70%+ match"], [80, "80%+ match"]], f.minFit)}</select>
     <label class="op-f-sort">Sort <select id="opf-sort" class="op-f">${opt([["geo", "Texas first"], ["fit", "Best match %"], ["new", "Newest"], ["soon", "Leaving soon"], ["company", "Company A–Z"]], f.sort)}</select></label>
@@ -1086,8 +1087,8 @@ function opChipBar() {
     hideStaffing: OPENINGS.filter((o) => o.staffing).length,
   };
   const chip = (key, label) => `<button class="op-chip${f[key] ? " on" : ""}" data-chip="${key}">${label}${n[key] ? ` <b>${n[key]}</b>` : ""}</button>`;
-  return chip("onlyNew", "🆕 New") + chip("onlySoon", "⏳ Leaving soon")
-    + chip("onlyCap", "🎓 Cap-exempt") + chip("hideStaffing", "🚫 Hide staffing");
+  return chip("onlyNew", "New") + chip("onlySoon", "Leaving soon")
+    + chip("onlyCap", "Cap-exempt") + chip("hideStaffing", "Hide staffing");
 }
 function wireOpCardButtons() {
   $$("#openings-view .op-track").forEach((b) => (b.onclick = () => {
@@ -1161,25 +1162,25 @@ const LP_SPONSOR_TOOLS = [
   { l: "MyVisaJobs — top H-1B sponsors & company reports", u: 'https://www.myvisajobs.com/', note: "Rankings + per-company sponsorship history." },
   { l: "H1BGrader — sponsor search + approval rates", u: 'https://www.h1bgrader.com/', note: "Approval odds and filing volume per employer." },
   { l: "USCIS H-1B Employer Data Hub (official)", u: 'https://www.uscis.gov/tools/reports-and-studies/h-1b-employer-data-hub', note: "Ground-truth government data on approvals/denials by employer." },
-  { l: "GitHub · SimplifyJobs New-Grad Positions (🛂 tagged)", u: 'https://github.com/SimplifyJobs/New-Grad-Positions', note: "Live new-grad list with sponsorship flags." },
-  { l: "GitHub · vanshb03 New-Grad-2027 (🛂 tagged)", u: 'https://github.com/vanshb03/New-Grad-2027', note: "Second curated new-grad feed, updated daily." },
+  { l: "GitHub · SimplifyJobs New-Grad Positions (tagged)", u: 'https://github.com/SimplifyJobs/New-Grad-Positions', note: "Live new-grad list with sponsorship flags." },
+  { l: "GitHub · vanshb03 New-Grad-2027 (tagged)", u: 'https://github.com/vanshb03/New-Grad-2027', note: "Second curated new-grad feed, updated daily." },
 ];
 // Target companies — categorized, apply direct from their career pages. (Full list also in
 // _local/company-targets.md.) Verify sponsorship on the specific req before applying.
-const LP_CAPEXEMPT = [   // 🎓 H-1B lottery-proof — universities & nonprofit hospitals (apply here first)
-  { l: "University of Houston 📍 (your school)", u: 'https://uh.wd1.myworkdayjobs.com/UHCareers' },
-  { l: "MD Anderson Cancer Center 📍", u: 'https://careers.mdanderson.org/' },
-  { l: "Houston Methodist 📍", u: 'https://jobs.houstonmethodist.org/' },
-  { l: "Baylor College of Medicine 📍", u: 'https://jobs.bcm.edu/' },
-  { l: "Texas Children's Hospital 📍", u: 'https://jobs.texaschildrens.org/' },
-  { l: "UTHealth Houston 📍", u: 'https://go.uth.edu/careers' },
-  { l: "Memorial Hermann 📍", u: 'https://careers.memorialhermann.org/' },
-  { l: "Rice University 📍", u: 'https://jobs.rice.edu/' },
+const LP_CAPEXEMPT = [   // H-1B lottery-proof — universities & nonprofit hospitals (apply here first)
+  { l: "University of Houston (your school)", u: 'https://uh.wd1.myworkdayjobs.com/UHCareers' },
+  { l: "MD Anderson Cancer Center ", u: 'https://careers.mdanderson.org/' },
+  { l: "Houston Methodist ", u: 'https://jobs.houstonmethodist.org/' },
+  { l: "Baylor College of Medicine ", u: 'https://jobs.bcm.edu/' },
+  { l: "Texas Children's Hospital ", u: 'https://jobs.texaschildrens.org/' },
+  { l: "UTHealth Houston ", u: 'https://go.uth.edu/careers' },
+  { l: "Memorial Hermann ", u: 'https://careers.memorialhermann.org/' },
+  { l: "Rice University ", u: 'https://jobs.rice.edu/' },
   { l: "UT Austin", u: 'https://jobs.utexas.edu/' },
   { l: "Texas A&M", u: 'https://jobs.tamu.edu/' },
   { l: "UT Dallas", u: 'https://jobs.utdallas.edu/' },
 ];
-const LP_TEXAS = [   // 📍 Texas employers — high UH-alumni density, no relocation
+const LP_TEXAS = [   // Texas employers — high UH-alumni density, no relocation
   { l: "H-E-B Digital (San Antonio/Houston)", u: 'https://careers.heb.com/' },
   { l: "USAA (San Antonio) — verify sponsorship", u: 'https://www.usaajobs.com/' },
   { l: "Charles Schwab (Southlake)", u: 'https://www.schwabjobs.com/' },
@@ -1190,17 +1191,17 @@ const LP_TEXAS = [   // 📍 Texas employers — high UH-alumni density, no relo
   { l: "Rackspace (San Antonio)", u: 'https://www.rackspace.com/careers' },
   { l: "Indeed (Austin)", u: 'https://www.indeed.jobs/' },
 ];
-const LP_ENERGY = [   // 🛢️ Houston energy majors — large local cloud/IT orgs, many UH grads
-  { l: "ExxonMobil 📍", u: 'https://jobs.exxonmobil.com/' },
-  { l: "Chevron 📍", u: 'https://careers.chevron.com/' },
-  { l: "ConocoPhillips 📍", u: 'https://careers.conocophillips.com/' },
-  { l: "SLB / Schlumberger 📍 (strong tech sponsor)", u: 'https://careers.slb.com/' },
-  { l: "Halliburton 📍", u: 'https://jobs.halliburton.com/' },
-  { l: "Baker Hughes 📍", u: 'https://careers.bakerhughes.com/' },
-  { l: "Phillips 66 📍", u: 'https://jobs.phillips66.com/' },
-  { l: "Occidental (Oxy) 📍", u: 'https://www.oxy.com/careers/' },
+const LP_ENERGY = [   // Houston energy majors — large local cloud/IT orgs, many UH grads
+  { l: "ExxonMobil ", u: 'https://jobs.exxonmobil.com/' },
+  { l: "Chevron ", u: 'https://careers.chevron.com/' },
+  { l: "ConocoPhillips ", u: 'https://careers.conocophillips.com/' },
+  { l: "SLB / Schlumberger (strong tech sponsor)", u: 'https://careers.slb.com/' },
+  { l: "Halliburton ", u: 'https://jobs.halliburton.com/' },
+  { l: "Baker Hughes ", u: 'https://careers.bakerhughes.com/' },
+  { l: "Phillips 66 ", u: 'https://jobs.phillips66.com/' },
+  { l: "Occidental (Oxy) ", u: 'https://www.oxy.com/careers/' },
 ];
-const LP_BIGTECH = [   // 🏆 Big-tech + ☁️ cloud/infra product companies — best stack fit, sponsor at scale
+const LP_BIGTECH = [   // Big-tech + cloud/infra product companies — best stack fit, sponsor at scale
   { l: "Amazon / AWS (Cloud Support Engineer = bullseye)", u: 'https://www.amazon.jobs/' },
   { l: "Microsoft (Azure Support roles)", u: 'https://careers.microsoft.com/' },
   { l: "Google (Technical Solutions Engineer)", u: 'https://www.google.com/about/careers/applications/' },
@@ -1218,10 +1219,16 @@ const LP_BIGTECH = [   // 🏆 Big-tech + ☁️ cloud/infra product companies �
   { l: "Databricks", u: 'https://www.databricks.com/company/careers' },
   { l: "DigitalOcean", u: 'https://careers.digitalocean.com/' },
   { l: "Akamai", u: 'https://jobs.akamai.com/en/sites/CX_1/jobs' },
+  { l: "Airbnb (Cloud Infra / Networking — remote-US)", u: 'https://careers.airbnb.com/' },
+  { l: "Reddit (Data / Infra Platform — remote-US)", u: 'https://www.redditinc.com/careers' },
+  { l: "Anyscale (Ray / distributed compute)", u: 'https://jobs.ashbyhq.com/anyscale' },
+  { l: "Baseten (AI inference infra — remote-capable)", u: 'https://jobs.ashbyhq.com/baseten' },
+  { l: "Nuro (autonomy infra / SRE)", u: 'https://www.nuro.ai/careers' },
+  { l: "Samsara (IoT / cloud infra)", u: 'https://www.samsara.com/company/careers/roles' },
 ];
-const LP_FINTECH = [   // 💳 Fintech / finance — heavy sponsors, huge cloud/SRE orgs
-  { l: "Capital One (AWS-first; Plano 📍)", u: 'https://www.capitalonecareers.com/' },
-  { l: "JPMorgan Chase (Plano/Houston 📍)", u: 'https://careers.jpmorgan.com/' },
+const LP_FINTECH = [   // Fintech / finance — heavy sponsors, huge cloud/SRE orgs
+  { l: "Capital One (AWS-first; Plano )", u: 'https://www.capitalonecareers.com/' },
+  { l: "JPMorgan Chase (Plano/Houston )", u: 'https://careers.jpmorgan.com/' },
   { l: "Goldman Sachs", u: 'https://www.goldmansachs.com/careers/' },
   { l: "Bloomberg", u: 'https://careers.bloomberg.com/' },
   { l: "Stripe", u: 'https://stripe.com/jobs/search' },
@@ -1231,7 +1238,7 @@ const LP_FINTECH = [   // 💳 Fintech / finance — heavy sponsors, huge cloud/
   { l: "Robinhood", u: 'https://careers.robinhood.com/' },
   { l: "Chime", u: 'https://careers.chime.com/' },
 ];
-const LP_CONSULTANCY = [   // 🤝 OPT→H-1B consultancies + AWS partners — structured early-career cloud tracks
+const LP_CONSULTANCY = [   // OPT→H-1B consultancies + AWS partners — structured early-career cloud tracks
   { l: "Accenture (Technology Development Program)", u: 'https://www.accenture.com/us-en/careers' },
   { l: "Slalom (AWS Cloud Residency)", u: 'https://www.slalom.com/careers' },
   { l: "Infosys", u: 'https://www.infosys.com/careers/' },
@@ -1264,11 +1271,7 @@ function lpLinks(arr) {
 // Weekly-reset checklist for the target companies. Stored in this browser (localStorage),
 // keyed to the current week (Monday) — so the checkmarks clear automatically each new week.
 const LP_COMPANIES = () => [...LP_CAPEXEMPT, ...LP_TEXAS, ...LP_ENERGY, ...LP_BIGTECH, ...LP_FINTECH, ...LP_CONSULTANCY];
-function weekKey() {                              // Monday of the current week, as YYYY-MM-DD
-  const d = new Date(today() + "T00:00:00");
-  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
-  return _ymd(d);
-}
+function weekKey() { return today(); }            // DAILY reset — the checklist clears each new day (YYYY-MM-DD)
 function lpChecks() {
   try {
     const s = JSON.parse(localStorage.getItem("lp-checks") || "{}");
@@ -1281,27 +1284,29 @@ function lpCoLinks(arr, checked) {
     const on = !!checked[x.u];
     return `<div class="lp-co${on ? " done" : ""}">
       <input type="checkbox" class="lp-co-chk" data-u="${esc(x.u)}"${on ? " checked" : ""} title="Mark done for today" />
-      <a class="lp-link" href="${esc(x.u)}" target="_blank" rel="noopener">${esc(x.l)}</a>
+      <a class="lp-link" href="${esc(x.u)}" target="_blank" rel="noopener">${esc(x.l)}${x.note ? `<span class="lp-note">${esc(x.note)}</span>` : ""}</a>
     </div>`;
   }).join("");
 }
 function renderLaunchpad(el) {
   const checks = lpChecks(); lpSaveChecks(checks);          // persist the weekly reset
-  const coAll = LP_COMPANIES(), coTotal = coAll.length;
-  const coDone = () => coAll.filter((x) => lpChecks().checked[x.u]).length;
+  const coKeys = [...LP_PLATFORMS.map((p) => "plat:" + p.name), ...LP_AGGREGATORS.map((x) => x.u),
+    ...LP_UH.map((x) => x.u), ...LP_COMPANIES().map((x) => x.u)];
+  const coTotal = coKeys.length;
+  const coDone = () => coKeys.filter((k) => lpChecks().checked[k]).length;
   el.innerHTML = `<div class="page-head"><div>
-      <h1>🚀 Job-Search Launchpad</h1>
+      <h1>Job-Search Launchpad</h1>
       <p class="sub">Curated deep-links into every job platform — pre-filtered for <b>your</b> profile (entry/associate cloud · DevOps · SRE, Texas + remote, recent postings) — plus sponsor-first boards, your UH alumni channel, and a categorized list of target companies to apply to direct. Open a link, it lands you on a live search. No scraping; always fresh.</p>
     </div></div>
     <div class="container"><div class="container-body lp-wrap">
 
       <section class="lp-callout">
-        <h3>⚡ The move now: outreach beats screening</h3>
+        <h3>The move now: outreach beats screening</h3>
         <p>You've applied at real volume — but every one is a <b>cold</b> application, and for a sponsorship candidate those convert worst. A <b>referral is worth ~5–10 cold applications.</b> For each role you apply to: find <b>one person</b> at that company (a <b>UH alum is warmest</b>), send them a short referral note, and set a <b>5–7 day follow-up</b>. Fewer new applications, more human contact on the ones you have.</p>
       </section>
 
       <section class="lp-sec">
-        <h3>🔑 Your search terms</h3>
+        <h3>Your search terms</h3>
         <div class="lp-chips">${LP_TITLES.map((t) => `<button class="lp-chip" data-copytext="${esc(t)}" title="Click to copy">${esc(t)}</button>`).join("")}</div>
         <div class="lp-copyrow"><code class="lp-code" id="lp-bool">${esc(LP_BOOLEAN)}</code><button class="btn sm" id="lp-copy-bool">Copy boolean</button></div>
         <div class="lp-copyrow"><code class="lp-code" id="lp-spon">${esc(LP_SPONSOR)}</code><button class="btn sm" id="lp-copy-spon">Copy sponsor filter</button></div>
@@ -1309,50 +1314,50 @@ function renderLaunchpad(el) {
       </section>
 
       <section class="lp-sec">
-        <h3>🌐 Job platforms <span class="lp-muted">— pre-filtered searches</span></h3>
+        <h3>Job platforms <span class="lp-muted">— pre-filtered searches</span></h3>
         <div class="lp-grid">
-          ${LP_PLATFORMS.map((p) => `<div class="lp-card">
-            <div class="lp-card-h"><b>${esc(p.name)}</b><span class="lp-tag">${esc(p.tag)}</span></div>
+          ${LP_PLATFORMS.map((p) => { const on = !!checks.checked["plat:" + p.name]; return `<div class="lp-card${on ? " done" : ""}">
+            <div class="lp-card-h"><input type="checkbox" class="lp-co-chk" data-u="plat:${esc(p.name)}"${on ? " checked" : ""} title="Mark this platform done for today" /><b>${esc(p.name)}</b><span class="lp-tag">${esc(p.tag)}</span></div>
             <p class="lp-tip">${esc(p.tip)}</p>
             <div class="lp-links">${lpLinks(p.links)}</div>
-          </div>`).join("")}
+          </div>`; }).join("")}
         </div>
       </section>
 
       <section class="lp-sec">
-        <h3>🚀 Sponsor-first &amp; startup boards <span class="lp-muted">— where you haven't been yet</span></h3>
-        <p class="lp-hint">Beyond LinkedIn/Indeed/Dice. These either filter for visa sponsorship or surface startups (which sponsor more readily and have less competition).</p>
-        <div class="lp-links wide">${lpLinks(LP_AGGREGATORS)}</div>
+        <h3>Sponsor-first &amp; startup boards <span class="lp-muted">— where you haven't been yet</span></h3>
+        <p class="lp-hint">Beyond LinkedIn/Indeed/Dice. These either filter for visa sponsorship or surface startups (which sponsor more readily and have less competition). Tick each once you've swept it today.</p>
+        <div class="lp-links wide">${lpCoLinks(LP_AGGREGATORS, checks.checked)}</div>
       </section>
 
       <section class="lp-sec">
-        <h3>🎓 University of Houston <span class="lp-muted">— your warmest, most underused channel</span></h3>
+        <h3>University of Houston <span class="lp-muted">— your warmest, most underused channel</span></h3>
         <p class="lp-hint">Alumni referrals + cap-exempt hiring + fall recruiting (opening now). Start here before another cold board.</p>
-        <div class="lp-links wide">${lpLinks(LP_UH)}</div>
+        <div class="lp-links wide">${lpCoLinks(LP_UH, checks.checked)}</div>
       </section>
 
       <section class="lp-sec">
-        <h3>🛂 Visa-sponsorship research <span class="lp-muted">— check before you apply</span></h3>
+        <h3>Visa-sponsorship research <span class="lp-muted">— check before you apply</span></h3>
         <div class="lp-links wide">${lpLinks(LP_SPONSOR_TOOLS)}</div>
       </section>
 
       <section class="lp-sec">
         <div class="lp-co-head">
-          <h3>🎯 Target companies <span class="lp-muted">— apply direct from their career pages</span></h3>
-          <div class="lp-co-tools"><span id="lp-co-progress" class="lp-co-prog">${coDone()} / ${coTotal} done this week</span><button class="btn sm" id="lp-co-reset">Reset week</button></div>
+          <h3>Target companies <span class="lp-muted">— apply direct from their career pages</span></h3>
+          <div class="lp-co-tools"><span id="lp-co-progress" class="lp-co-prog">${coDone()} / ${coTotal} swept today</span><button class="btn sm" id="lp-co-reset">Reset today</button></div>
         </div>
-        <p class="lp-hint">Tick a company off once you've applied to / reviewed it — the checkmarks <b>reset every week</b> (each Monday) so it's a fresh weekly pass (saved in this browser). <b>Verify the sponsorship clause on the specific req.</b> 📍 = Texas / no relocation.</p>
-        <h4 class="lp-sub">🎓 Cap-exempt — Texas <span class="lp-muted">(H-1B lottery-proof — apply here first)</span></h4>
+        <p class="lp-hint">Every platform, board, and company here has a checkbox — tick each once you've swept / applied to it, and they <b>reset every day</b> so each morning is a fresh pass (saved in this browser). The counter above tracks the whole page. <b>Verify the sponsorship clause on the specific req.</b> = Texas / no relocation.</p>
+        <h4 class="lp-sub">Cap-exempt — Texas <span class="lp-muted">(H-1B lottery-proof — apply here first)</span></h4>
         <div class="lp-links grid3">${lpCoLinks(LP_CAPEXEMPT, checks.checked)}</div>
-        <h4 class="lp-sub">📍 Texas employers <span class="lp-muted">(home-field: UH-alumni density)</span></h4>
+        <h4 class="lp-sub">Texas employers <span class="lp-muted">(home-field: UH-alumni density)</span></h4>
         <div class="lp-links grid3">${lpCoLinks(LP_TEXAS, checks.checked)}</div>
-        <h4 class="lp-sub">🛢️ Houston energy majors <span class="lp-muted">(large local cloud/IT orgs)</span></h4>
+        <h4 class="lp-sub">Houston energy majors <span class="lp-muted">(large local cloud/IT orgs)</span></h4>
         <div class="lp-links grid3">${lpCoLinks(LP_ENERGY, checks.checked)}</div>
-        <h4 class="lp-sub">🏆 Big-tech &amp; cloud-product <span class="lp-muted">(best stack fit, sponsor at scale)</span></h4>
+        <h4 class="lp-sub">Big-tech &amp; cloud-product <span class="lp-muted">(best stack fit, sponsor at scale)</span></h4>
         <div class="lp-links grid3">${lpCoLinks(LP_BIGTECH, checks.checked)}</div>
-        <h4 class="lp-sub">💳 Fintech &amp; finance <span class="lp-muted">(heavy sponsors, big cloud/SRE orgs)</span></h4>
+        <h4 class="lp-sub">Fintech &amp; finance <span class="lp-muted">(heavy sponsors, big cloud/SRE orgs)</span></h4>
         <div class="lp-links grid3">${lpCoLinks(LP_FINTECH, checks.checked)}</div>
-        <h4 class="lp-sub">🤝 Consultancies &amp; AWS partners <span class="lp-muted">(OPT→H-1B early-career tracks)</span></h4>
+        <h4 class="lp-sub">Consultancies &amp; AWS partners <span class="lp-muted">(OPT→H-1B early-career tracks)</span></h4>
         <div class="lp-links grid3">${lpCoLinks(LP_CONSULTANCY, checks.checked)}</div>
       </section>
 
@@ -1360,24 +1365,24 @@ function renderLaunchpad(el) {
   const copy = (text, btn, done) => {
     const write = navigator.clipboard && navigator.clipboard.writeText
       ? navigator.clipboard.writeText(text) : Promise.reject();
-    write.then(() => { const o = btn.textContent; btn.textContent = done || "Copied ✓"; setTimeout(() => (btn.textContent = o), 1200); })
+    write.then(() => { const o = btn.textContent; btn.textContent = done || "Copied "; setTimeout(() => (btn.textContent = o), 1200); })
       .catch(() => { window.prompt("Copy:", text); });
   };
   const cb = $("#lp-copy-bool"); if (cb) cb.onclick = () => copy(LP_BOOLEAN, cb);
   const cs = $("#lp-copy-spon"); if (cs) cs.onclick = () => copy(LP_SPONSOR, cs);
-  $$("#openings-view .lp-chip").forEach((c) => (c.onclick = () => copy(c.dataset.copytext, c, "Copied ✓")));
+  $$("#openings-view .lp-chip").forEach((c) => (c.onclick = () => copy(c.dataset.copytext, c, "Copied ")));
   // Target-company daily checklist
-  const refreshProg = () => { const p = $("#lp-co-progress"); if (p) p.textContent = `${coDone()} / ${coTotal} done this week`; };
+  const refreshProg = () => { const p = $("#lp-co-progress"); if (p) p.textContent = `${coDone()} / ${coTotal} swept today`; };
   $$("#openings-view .lp-co-chk").forEach((c) => (c.onchange = () => {
     const s = lpChecks();
     if (c.checked) s.checked[c.dataset.u] = true; else delete s.checked[c.dataset.u];
     lpSaveChecks(s);
-    c.closest(".lp-co").classList.toggle("done", c.checked);
+    const w = c.closest(".lp-co, .lp-card"); if (w) w.classList.toggle("done", c.checked);
     refreshProg();
   }));
   const rst = $("#lp-co-reset"); if (rst) rst.onclick = () => {
     lpSaveChecks({ date: weekKey(), checked: {} });
-    $$("#openings-view .lp-co-chk").forEach((c) => { c.checked = false; c.closest(".lp-co").classList.remove("done"); });
+    $$("#openings-view .lp-co-chk").forEach((c) => { c.checked = false; const w = c.closest(".lp-co, .lp-card"); if (w) w.classList.remove("done"); });
     refreshProg();
   };
 }
@@ -1393,13 +1398,13 @@ function renderOpenings() {
   meta.push(`${OPENINGS.length} live`);
   if (nNew) meta.push(`<b class="op-c new">${nNew} new</b>`);
   if (nSoon) meta.push(`<b class="op-c soon">${nSoon} leaving soon</b>`);
-  el.innerHTML = `<div class="page-head"><div><h1>🔎 Openings</h1><p class="sub">Entry-level cloud · DevOps · SRE · support roles scanned across sponsor-friendly companies, pulled daily from ATS boards (Greenhouse/Ashby/Amazon/Workday/Lever), the GitHub 🛂 sponsorship feeds, and the Adzuna aggregator — then <b>every confirmed no-sponsorship role is dropped</b> (only sponsor-enabled or likely-to-sponsor kept), scored by stack + seniority overlap, and ranked <b>Texas → remote → rest of US</b> by match %. Only ≥50% matches kept. Anything you log to the tracker or mark <b>Not interested</b> never comes back, and duplicates are collapsed to one. Filter by source · state · sponsorship · match %, or the quick chips (🆕 New · ⏳ Leaving soon · 🎓 Cap-exempt · 🚫 Hide staffing).</p>
+  el.innerHTML = `<div class="page-head"><div><h1>Openings</h1><p class="sub">Entry-level cloud · DevOps · SRE · support roles scanned across sponsor-friendly companies, pulled daily from ATS boards (Greenhouse/Ashby/Amazon/Workday/Lever), the GitHub sponsorship feeds, and the Adzuna aggregator — then <b>every confirmed no-sponsorship role is dropped</b> (only sponsor-enabled or likely-to-sponsor kept), scored by stack + seniority overlap, and ranked <b>Texas → remote → rest of US</b> by match %. Only ≥50% matches kept. Anything you log to the tracker or mark <b>Not interested</b> never comes back, and duplicates are collapsed to one. Filter by source · state · sponsorship · match %, or the quick chips (New · Leaving soon · Cap-exempt · Hide staffing).</p>
       <p class="op-meta">${meta.join(" · ")}</p></div>
-      <div class="head-actions"><button id="op-rescan" class="btn">↻ Rescan</button></div></div>
+      <div class="head-actions"><button id="op-rescan" class="btn">Rescan</button></div></div>
     ${opSourcesPanel()}
     <div class="container"><div class="container-body">
       ${OPENINGS.length ? `${opFilterBar()}<div id="op-results"></div>`
-      : `<p class="empty">No openings right now. Hit <b>↻ Rescan</b> to pull the latest (~1–2 min); new finds are added without wiping what's here.</p>`}
+      : `<p class="empty">No openings right now. Hit <b>Rescan</b> to pull the latest (~1–2 min); new finds are added without wiping what's here.</p>`}
     </div></div>`;
   $("#op-rescan").onclick = rescanOpenings;
   const q = $("#opf-q"); if (q) q.oninput = () => { opFilters.q = q.value; renderOpList(); };
@@ -1434,7 +1439,7 @@ async function rescanOpenings() {
       if (OPENINGS.reduce((m, o) => Math.max(m, o.lastSeenAt || 0), 0) > baseline) break;
     }
   } catch (_e) { /* leave button re-enabled below */ }
-  const b = $("#op-rescan"); if (b) { b.disabled = false; b.textContent = "↻ Rescan"; }
+  const b = $("#op-rescan"); if (b) { b.disabled = false; b.textContent = "Rescan"; }
   renderOpenings();
 }
 

@@ -131,6 +131,9 @@ main { flex: 1; min-width: 0; padding: 1.1rem 1.5rem 2rem; max-width: 1180px; }
 
 /* status pills */
 .pill { font-size: .68rem; font-weight: 700; border-radius: 20px; padding: .12rem .55rem; text-transform: capitalize; }
+.pill.pending { background: #ede9fe; color: #5b21b6; }
+.card-link { color: var(--link, #006ce0); font-weight: 600; text-decoration: none; }
+.card-link:hover { text-decoration: underline; }
 .pill.applied { background: #eef0f2; color: #5f6b7a; }
 .pill.screen { background: #fff2d9; color: #8a5a00; }
 .pill.interview { background: #e6f0ff; color: #0056d6; }
@@ -566,3 +569,8 @@ input.op-f { flex: 1 1 220px; min-width: 180px; }
 .lp-co .lp-co-chk { margin-top: .55rem; width: 1rem; height: 1rem; flex: none; cursor: pointer; accent-color: var(--ok); }
 .lp-co .lp-link { flex: 1; }
 .lp-co.done .lp-link { opacity: .5; text-decoration: line-through; }
+.lp-card-h { justify-content: flex-start; }
+.lp-card-h .lp-co-chk { width: 1rem; height: 1rem; flex: none; cursor: pointer; accent-color: var(--ok); }
+.lp-card-h .lp-tag { margin-left: auto; }
+.lp-card.done { opacity: .6; }
+.lp-card.done .lp-card-h b { text-decoration: line-through; }

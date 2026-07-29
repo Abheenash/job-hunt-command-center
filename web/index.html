@@ -41,7 +41,7 @@
       </div>
       <div class="gnav-r">
         <div class="pop-wrap">
-          <button class="gnav-chip bell" id="notif-btn" title="Inbox findings"><span class="i">🔔</span><span class="nbadge" id="notif-badge" hidden>0</span></button>
+          <button class="gnav-chip bell" id="notif-btn" title="Inbox findings"><span class="i"></span><span class="nbadge" id="notif-badge" hidden>0</span></button>
           <div class="pop notif-pop" id="notif-pop" hidden>
             <div class="notif-head"><b>Inbox findings</b><button class="linkbtn" id="notif-read">Mark all read</button></div>
             <div id="notif-list"></div>
@@ -51,10 +51,10 @@
           <button class="gnav-acct" id="acct-btn"><span class="avatar-i"></span><span class="name">Abheenash Rajolu</span><span class="caret">▾</span></button>
           <div class="pop pop-acct" id="acct-pop" hidden>
             <div class="pop-acct-head"><span class="avatar-i big"></span><div><b>Abheenash Rajolu</b><small>Job Tracker</small></div></div>
-            <a class="acct-mail" href="mailto:abheenash007@gmail.com">✉ abheenash007@gmail.com</a>
-            <button class="acct-link" id="pw-open">🔑 Change password</button>
-            <a href="https://abheenash.com" target="_blank" rel="noopener">↩ Portfolio</a>
-            <a href="https://github.com/Abheenash/job-hunt-command-center" target="_blank" rel="noopener">⌥ Source</a>
+            <a class="acct-mail" href="mailto:abheenash007@gmail.com">abheenash007@gmail.com</a>
+            <button class="acct-link" id="pw-open">Change password</button>
+            <a href="https://abheenash.com" target="_blank" rel="noopener">Portfolio</a>
+            <a href="https://github.com/Abheenash/job-hunt-command-center" target="_blank" rel="noopener">Source</a>
             <button class="acct-link" id="logout">Sign out</button>
           </div>
         </div>
@@ -66,10 +66,10 @@
       <aside class="sidebar" id="sidebar">
         <div class="side-sub">Views</div>
         <nav class="views" id="views">
-          <button class="chip view on" data-v="all">📋 All applications</button>
-          <button class="chip view" data-v="todo">⏰ Follow-ups<span id="todo-count">0</span></button>
-          <button class="chip view" data-v="inbox">📨 Inbox<span id="inbox-count">0</span></button>
-          <button class="chip view" data-v="openings">🔎 Openings<span id="openings-count">0</span></button>
+          <button class="chip view on" data-v="all">All applications</button>
+          <button class="chip view" data-v="todo">Follow-ups<span id="todo-count">0</span></button>
+          <button class="chip view" data-v="inbox">Inbox<span id="inbox-count">0</span></button>
+          <button class="chip view" data-v="openings">Openings<span id="openings-count">0</span></button>
         </nav>
         <div class="side-sub">Status</div>
         <nav id="filters"></nav>
@@ -80,17 +80,17 @@
           <label class="side-check"><input type="checkbox" id="f-opt" /> OPT / sponsors only</label>
           <select id="f-reach" class="side-input" title="Filter by reach-out status">
             <option value="">All reach-outs</option>
-            <option value="none">📣 No reach-outs yet</option>
-            <option value="has">✅ Has reach-outs</option>
-            <option value="due">⏰ Reach-out due</option>
-            <option value="overdue">⚠ Overdue reach-out</option>
+            <option value="none">No reach-outs yet</option>
+            <option value="has">Has reach-outs</option>
+            <option value="due">Reach-out due</option>
+            <option value="overdue">Overdue reach-out</option>
           </select>
           <button id="f-clear" class="btn wide" hidden>Clear filters</button>
         </div>
         <div class="side-status" id="side-status">
           <div><span class="dot">●</span> Open to work: <b>yes</b></div>
           <div id="side-count">—</div>
-          <div>☕ Keep applying.</div>
+          <div>Keep applying.</div>
         </div>
       </aside>
 
@@ -111,9 +111,9 @@
                 <option value="applied">Date applied (newest)</option>
                 <option value="priority">Importance (high first)</option>
               </select>
-              <button id="activity-btn" class="btn">📅 By date</button>
-              <button id="analytics-btn" class="btn">📊 Analytics</button>
-              <button id="export" class="btn">⬇ CSV</button>
+              <button id="activity-btn" class="btn">By date</button>
+              <button id="analytics-btn" class="btn">Analytics</button>
+              <button id="export" class="btn">CSV</button>
               <button id="add" class="btn primary">+ Log application</button>
             </div>
           </div>
@@ -142,12 +142,12 @@
           <div class="page-head"><h1 id="edit-title">Log application</h1></div>
 
           <div class="jd-box">
-            <label>✨ Paste the job description — AI fills the fields, tailors a résumé, and scores the match</label>
+            <label>Paste the job description — AI fills the fields, tailors a résumé, and scores the match</label>
             <textarea id="jd" rows="4" placeholder="Paste the full JD here. (Saved with the application for interview prep + the match check.)"></textarea>
             <div class="jd-actions">
-              <button type="button" id="autofill" class="btn">✨ Autofill fields</button>
-              <button type="button" id="check-spon" class="btn">🛂 Check sponsorship</button>
-              <button type="button" id="gen-resume" class="btn primary">📄 Generate tailored résumé</button>
+              <button type="button" id="autofill" class="btn">Autofill fields</button>
+              <button type="button" id="check-spon" class="btn">Check sponsorship</button>
+              <button type="button" id="gen-resume" class="btn primary">Generate tailored résumé</button>
               <select id="gen-model" class="sortsel" title="Which model writes the résumé">
                 <option value="sonnet">Sonnet 4.6</option>
                 <option value="haiku">Haiku 4.5</option>
@@ -180,12 +180,13 @@
             <label>Next action due<input name="nextDue" type="date" /></label>
             <label>Tags (comma-sep)<input name="tags" placeholder="aws, remote, devops" /></label>
             <div class="full reachouts">
-              <div class="cf-head"><label>📣 Reach-outs</label><button type="button" id="ro-add" class="btn sm">+ Add person</button></div>
+              <div class="cf-head"><label>Reach-outs</label><button type="button" id="ro-add" class="btn sm">+ Add person</button></div>
               <div id="ro-rows"></div>
               <p class="filenote">Everyone you plan to reach out to for a referral — name, LinkedIn URL, email, a message, and a due date. Add as many people as you want.</p>
             </div>
             <label class="full">Required skills<input name="requiredSkills" placeholder="auto-filled from the JD" /></label>
             <label class="full">Nice to have<input name="niceToHave" placeholder="auto-filled from the JD" /></label>
+            <label class="full">Notes<textarea name="notes" rows="3" placeholder="Résumé path, apply-by / reach-out dates, reminders…"></textarea></label>
             <div class="full customfields">
               <div class="cf-head"><label>Custom fields / tags</label><button type="button" id="cf-add" class="btn sm">+ Add field</button></div>
               <div id="cf-rows"></div>
@@ -205,11 +206,11 @@
     </div>
 
     <!-- ASK AI -->
-    <button id="ai-fab" class="ai-fab" aria-label="Ask AI about your applications">✨ Ask AI</button>
+    <button id="ai-fab" class="ai-fab" aria-label="Ask AI about your applications">Ask AI</button>
     <section id="ai-panel" class="ai-panel" hidden aria-label="Ask AI">
       <header class="ai-head">
         <div><b>Ask about your applications</b><small>Claude · grounded in your tracker</small></div>
-        <button id="ai-close" class="ai-x" aria-label="Close">✕</button>
+        <button id="ai-close" class="ai-x" aria-label="Close"></button>
       </header>
       <div id="ai-log" class="ai-log"></div>
       <div id="ai-chips" class="ai-chips">
@@ -220,7 +221,7 @@
       </div>
       <form id="ai-form" class="ai-form">
         <input id="ai-input" type="text" placeholder="Ask about your applications…" autocomplete="off" />
-        <button class="ai-send" type="submit" aria-label="Ask">➤</button>
+        <button class="ai-send" type="submit" aria-label="Ask"></button>
       </form>
     </section>
 
@@ -232,10 +233,10 @@
   <!-- SETTINGS (modal) -->
   <div id="settings" class="modal" hidden>
     <div class="sheet sm-sheet">
-      <div class="sheet-head"><h2>Settings</h2><button id="settings-close" class="x">✕</button></div>
+      <div class="sheet-head"><h2>Settings</h2><button id="settings-close" class="x"></button></div>
       <div class="settings-body">
         <section class="setblock">
-          <h3>🔑 Change password</h3>
+          <h3>Change password</h3>
           <label>Current password<input id="pw-old" type="password" autocomplete="current-password" /></label>
           <label>New password<input id="pw-new" type="password" autocomplete="new-password" /></label>
           <p class="filenote">Min 10 chars, upper + lower + number.</p>
