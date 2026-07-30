@@ -179,6 +179,44 @@ NEG_RE = re.compile(
     r"we\s+(?:do|are)\s+not\s+(?:able\s+to\s+)?sponsor|must\s+not\s+require\s+sponsorship", re.I)
 CITIZEN_RE = re.compile(r"u\.?s\.?\s+citizen|citizenship\s+(?:is\s+)?required|security\s+clearance|\bitar\b|must\s+be\s+a\s+u\.?s\.?\s+person|public\s+trust|green\s+card\s+required", re.I)
 
+# --- posting-legitimacy / ghost-job signals (all deterministic, $0) -----------
+# "Evergreen" postings that are really a talent-pipeline funnel, not a live req — you can
+# apply forever and never hear back. Down-rank, don't drop (some are real pipelines).
+EVERGREEN_RE = re.compile(
+    r"\b(always (?:hiring|looking)|talent (?:community|network|pool|pipeline)|"
+    r"general application|evergreen|future (?:opportunit|opening|role)|"
+    r"join our (?:talent|network)|we're always|pipeline (?:req|role)|"
+    r"expression of interest|keep your resume on file|no specific (?:role|opening))\b", re.I)
+# Outright scam / MLM / fee-for-job tells — these get flagged hard.
+SCAM_RE = re.compile(
+    r"\b(registration fee|training fee|processing fee|pay (?:a|the|for) .{0,20}fee|"
+    r"wire transfer|western union|money ?gram|gift card|cashier'?s check|"
+    r"(?:interview|onboarding) (?:over|via|on) (?:telegram|whatsapp|signal|google hangouts?)|"
+    r"start (?:immediately|today) .{0,20}\$\d|earn \$\d[\d,]* (?:per|/) ?(?:week|day)|"
+    r"no experience (?:needed|required) .{0,20}\$\d|work from home .{0,20}\$\d{3,})\b", re.I)
+PERSONAL_EMAIL_RE = re.compile(r"@(?:gmail|yahoo|hotmail|outlook|aol|proton(?:mail)?|icloud)\.com", re.I)
+# Salary in the JD — for the comp dimension. Handles "$150,000 - $180,000", "$150k-$180k", "$75/hr".
+SALARY_RE = re.compile(
+    r"\$\s?(\d{2,3})(?:,?(\d{3}))?\s?[kK]?\s?(?:-|–|—|to)\s?\$?\s?(\d{2,3})(?:,?(\d{3}))?\s?[kK]?"
+    r"|\$\s?(\d{2,3})(?:,\d{3})?\s?[kK]?\s?(?:/|per\s)\s?(?:hr|hour|yr|year)", re.I)
+
+# JD-theme -> which of the candidate's REAL projects/angle to lead with (personalization).
+# Deterministic; only references projects that exist in profile.py. Order = priority.
+ANGLE_MAP = [
+    (re.compile(r"\b(kubernetes|k8s|eks|helm|container orchestrat|ingress)\b", re.I),
+     "aws-eks-platform", "your production-shaped Amazon EKS platform (Terraform, IRSA, ALB Ingress, HPA) with live self-heal + autoscale drills"),
+    (re.compile(r"\b(observability|sre|slo|monitoring|incident|on-call|reliability|alerting)\b", re.I),
+     "cloud-observability-sre", "your Cloud Observability & Incident Response build (golden-signals, X-Ray, SLOs, a real failure-injection drill)"),
+    (re.compile(r"\b(security|devsecops|compliance|vulnerab|iam|encryption|secrets|hardening)\b", re.I),
+     "secure-container-pipeline", "your Secure Container Pipeline (gitleaks/Checkov/tfsec/Trivy fail-the-build gates that blocked a planted secret)"),
+    (re.compile(r"\b(support|troubleshoot|operations|day.?2|restore|backup|patch)\b", re.I),
+     "aws-cloudops-lab", "your AWS CloudOps & Recovery Lab (incident drills, RCAs, a measured 6m36s RDS restore)"),
+    (re.compile(r"\b(serverless|lambda|api gateway|event.?driven|bedrock|genai|llm)\b", re.I),
+     "job-hunt-command-center", "your Job Hunt Command Center (event-driven Bedrock pipeline on Cognito/API GW/Lambda/Step Functions)"),
+    (re.compile(r"\b(distributed|concurren|multithread|c\+\+|performance|low.?level|systems programming)\b", re.I),
+     "concurrent-kv-store", "your C++ systems work (thread pool 5.2x speedup, OpenMP sim, multithreaded TCP KV store)"),
+]
+
 
 def _get(url, timeout=10, data=None, headers=None):
     h = dict(UA)
@@ -578,6 +616,104 @@ def _reason(o):
     return o.get("sponsorNote") or ""
 
 
+def _extract_salary(jd):
+    """Pull an advertised salary range from the JD, normalized to annual USD.
+    Returns (low, high) ints or None. 'k' and hourly ($/hr => *2080) are handled."""
+    m = SALARY_RE.search(jd or "")
+    if not m:
+        return None
+    if m.group(5):  # single value with /hr or /yr
+        n = int(m.group(5))
+        val = n * 2080 if re.search(r"/\s?(?:hr|hour)", m.group(0), re.I) or n < 1000 and "k" not in m.group(0).lower() and n < 200 else (n * 1000 if n < 1000 else n)
+        return (val, val)
+
+    def _val(a, b):
+        if not a:
+            return None
+        n = int(a)
+        if b:                       # "150,000"
+            return n * 1000 + int(b)
+        return n * 1000 if n < 1000 else n   # "150k" / "150" => 150000
+    lo, hi = _val(m.group(1), m.group(2)), _val(m.group(3), m.group(4))
+    if lo and hi:
+        return (min(lo, hi), max(lo, hi))
+    return None
+
+
+def _legitimacy(o, first_seen, now):
+    """Deterministic posting-legitimacy read (NO AI, $0). Returns
+    (flag, note, signals): flag in {'ok','caution','ghost','scam'}. A ghost/evergreen
+    posting is a talent-pipeline funnel you can apply to forever; a scam posting shows
+    fee/wire/off-platform-interview tells. Down-ranks ghosts, flags scams loudly."""
+    jd = o.get("jd") or ""
+    sig = []
+    if SCAM_RE.search(jd):
+        sig.append("fee/wire/off-platform interview language")
+    if PERSONAL_EMAIL_RE.search(jd):
+        sig.append("personal-email contact in JD")
+    if sig:
+        return "scam", "Scam tells present — do NOT apply without verifying the employer directly.", sig
+    if EVERGREEN_RE.search(jd):
+        sig.append("evergreen / talent-pipeline language")
+    age_days = int((now - first_seen) / 86400) if first_seen else 0
+    if age_days >= 30:
+        sig.append(f"in the radar {age_days}d (repeatedly reposted / long-open)")
+    posted = o.get("postedAt") or 0
+    if posted and (now - posted) > 60 * 86400:
+        sig.append(f"posted {int((now - posted) / 86400)}d ago (likely filled/stale)")
+    if o.get("staffing"):
+        sig.append("staffing / bodyshop poster")
+    if sig:
+        return "ghost", "Likely ghost/evergreen — verify it's a live req before spending effort.", sig
+    return "ok", "", []
+
+
+def _eval_breakdown(o):
+    """Structured, deterministic per-role evaluation (the '#2-lite' report) — $0, no AI.
+    Turns the raw fit number into an actionable read: which of the candidate's stack the
+    JD names, the notable JD techs he can't claim (gaps), level/years fit, advertised comp,
+    and which real project to lead with. The on-demand /evaluate route layers an AI deep
+    dive on top of this; this is the free baseline shown on every opening."""
+    title = (o.get("title") or "").lower()
+    jd = o.get("jd") or ""
+    text = (title + " \n " + jd).lower()
+    matched = [k.strip() for k in SKILL_KW if k in text]
+    # Gaps = notable technologies the JD asks for that are NOT in the candidate's corpus.
+    gap_terms = {
+        "gcp": "gcp", "google cloud": "gcp", "azure": "azure", "spark": "spark",
+        "kafka": "kafka", "flink": "flink", "airflow": "airflow", "hadoop": "hadoop",
+        "scala": "scala", "java ": "java", "ruby": "ruby", "rust": "rust", "elixir": "elixir",
+        "salesforce": "salesforce", "servicenow": "servicenow", "vmware": "vmware",
+        "openshift": "openshift", "istio": "istio", "envoy": "envoy service mesh",
+        "snowflake": "snowflake", "databricks": "databricks", "tableau": "tableau",
+        "powershell": "powershell", ".net": ".net", "c#": "c#", "php": "php",
+        "windows server": "windows server", "active directory": "active directory",
+    }
+    gaps = sorted({label for kw, label in gap_terms.items() if kw in text})
+    req_years = _req_years(jd)
+    if SENIOR_RE.search(title) or req_years >= 5:
+        level = "reach"          # senior/5y+ — above an early-career candidate
+    elif JUNIOR_RE.search(title) or (0 < req_years <= 2) or req_years == 0:
+        level = "on-target"      # entry/associate/new-grad or <=2y
+    else:
+        level = "stretch"        # 3-4y — applyable but frame the depth
+    salary = _extract_salary(jd)
+    angle_pid, angle_pitch = None, ""
+    for rx, pid, pitch in ANGLE_MAP:
+        if rx.search(text):
+            angle_pid, angle_pitch = pid, pitch
+            break
+    return {
+        "matchedSkills": matched[:14],
+        "gaps": gaps[:8],
+        "levelFit": level,
+        "reqYears": req_years,
+        "salaryRange": ({"low": salary[0], "high": salary[1]} if salary else None),
+        "angleProject": angle_pid,
+        "anglePitch": angle_pitch,
+    }
+
+
 def handler(event, _ctx):
     openings, errors = collect()
     suppressed_sigs = _load_suppressions()
@@ -604,11 +740,16 @@ def handler(event, _ctx):
             dropped["dup"] += 1
             continue
         best[o["sig"]] = o
-    # Deterministic score = the fit (free, no AI). Aggregator/staffing rows are down-ranked.
+    # Deterministic score = the fit (free, no AI). Aggregator/staffing rows are down-ranked;
+    # ghost/evergreen postings are down-ranked and scams are zeroed out entirely.
+    now_ts = int(time.time())
     for o in best.values():
+        o["legitFlag"], o["legitNote"], o["legitSignals"] = _legitimacy(o, 0, now_ts)
+        o["eval"] = _eval_breakdown(o)
         pen = 15 if (o["source"] == "adzuna" and o["sponsorRisk"] == "med") else 0
         pen += 12 if o.get("staffing") else 0
-        o["fit"] = max(0, o["content"] - pen)
+        pen += 15 if o["legitFlag"] == "ghost" else 0
+        o["fit"] = 0 if o["legitFlag"] == "scam" else max(0, o["content"] - pen)
         if o.get("capExempt"):
             o["sponsorRisk"] = "low"        # cap-exempt employer => lottery-proof, sponsor-safe
         o["reason"] = _reason(o)
@@ -633,7 +774,8 @@ def handler(event, _ctx):
         expire = now + ttl_days * 86400
         rec = {k: o.get(k) for k in ("company", "title", "location", "url", "source", "fit", "geo",
                                      "reason", "sponsorNote", "sponsorRisk", "capExempt", "staffing",
-                                     "scoredBy", "postedAt")}
+                                     "scoredBy", "postedAt", "legitFlag", "legitNote", "legitSignals",
+                                     "eval")}
         rec["jd"] = (o.get("jd") or "")[:6000]
         rec["scored"] = True  # marks a real scored row (vs legacy heuristic rows)
         # Upsert-as-merge keyed by the company|title signature: the same job re-seen at a new

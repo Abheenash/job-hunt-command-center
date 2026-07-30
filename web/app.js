@@ -319,6 +319,21 @@ function renderDetail(a) {
         <div class="container"><div class="container-head">Visa sponsorship</div><div class="container-body" id="d-spon">${sponInner(a)}</div></div>
         <div class="container"><div class="container-head">JD ↔ résumé match</div><div class="container-body" id="d-match">${matchInner(a)}</div></div>
         <div class="container"><div class="container-head">Interview prep</div><div class="container-body" id="d-prep">${prepInner(a)}</div></div>
+        <div class="container"><div class="container-head">AI tools</div><div class="container-body">
+          <div class="tool-btns">
+            <button class="btn sm" data-tool="evaluate">Deep eval</button>
+            <button class="btn sm" data-tool="research">Company research</button>
+            <button class="btn sm" data-tool="outreach">Outreach draft</button>
+            <button class="btn sm" data-tool="cover">Cover letter</button>
+            <button class="btn sm" data-tool="redflags">JD red flags</button>
+            <button class="btn sm" data-tool="prep">Prep plan</button>
+            <button class="btn sm" data-tool="stories">STAR stories</button>
+            <button class="btn sm" data-tool="salarygap">Salary gap</button>
+            <button class="btn sm" data-tool="clausewalk">Clause walk</button>
+          </div>
+          <p class="muted tool-hint">Deep eval, cover letter, and red flags read the job description (add it via Edit). Drafts are yours to review — nothing is sent.</p>
+          <div id="d-tool-out" class="tool-out"></div>
+        </div></div>
         ${skillsBody ? `<div class="container"><div class="container-head">Skills &amp; tags</div><div class="container-body">${skillsBody}</div></div>` : ""}
         ${a.notes ? `<div class="container"><div class="container-head">Notes</div><div class="container-body"><pre class="jd-text">${esc(a.notes)}</pre></div></div>` : ""}
         ${a.jd ? `<div class="container"><div class="container-head">Job description</div><div class="container-body"><pre class="jd-text">${esc(a.jd)}</pre></div></div>` : ""}
@@ -364,6 +379,7 @@ function renderDetail(a) {
   const mb = $("#d-match-btn"); if (mb) mb.onclick = () => runMatch(a.appId);
   const sb = $("#d-spon-btn"); if (sb) sb.onclick = () => runSponsor(a.appId);
   const pb = $("#d-prep-btn"); if (pb) pb.onclick = () => runPrep(a.appId);
+  $$("#detail-view .tool-btns button").forEach((b) => (b.onclick = () => runTool(a, b.dataset.tool, b)));
   $$("#detail-view .doclist a").forEach((el) => (el.onclick = async (e) => {
     e.preventDefault();
     const j = await api("GET", "/download?key=" + encodeURIComponent(el.dataset.key));
@@ -396,6 +412,110 @@ function matchResult(a) {
     </div>` : ""}
     <button class="btn sm" id="d-match-btn">Re-run</button> <span id="d-match-msg" class="filenote"></span>`;
 }
+// ---------- AI tools (on-demand feature Lambdas) ---------------------------
+function _sal(s) { if (!s) return null; const n = parseInt(String(s).replace(/[^0-9]/g, ""), 10); if (!n) return null; return n < 1000 ? n * 1000 : n; }
+function _salRange(s) {
+  if (!s) return null;
+  const nums = (String(s).match(/\d[\d,]*/g) || []).map((x) => parseInt(x.replace(/,/g, ""), 10)).filter(Boolean).map((n) => (n < 1000 ? n * 1000 : n));
+  if (nums.length >= 2) return [Math.min(...nums), Math.max(...nums)];
+  return nums.length === 1 ? nums[0] : null;
+}
+const TOOL_META = {
+  evaluate: { path: "/evaluate", needsJd: true, render: renderEval, body: (a) => ({ jd: a.jd, company: a.company, role: a.title }) },
+  research: { path: "/research", render: renderResearch, body: (a) => ({ company: a.company, role: a.title }) },
+  outreach: { path: "/outreach", render: renderOutreach, body: (a) => ({ app: { company: a.company, title: a.title }, contactType: "recruiter" }) },
+  cover: { path: "/cover", needsJd: true, render: renderCover, body: (a) => ({ jd: a.jd, company: a.company, role: a.title }) },
+  redflags: { path: "/interview/redflags", needsJd: true, render: renderRedflags, body: (a) => ({ text: a.jd }) },
+  prep: { path: "/interview/plan", render: renderPlan, body: (a) => ({ role: a.title, days: 3 }) },
+  stories: { path: "/interview/stories", render: renderStories, body: () => { const q = (window.prompt("Behavioral question you want stories for:") || "").trim(); return q ? { question: q } : null; } },
+  salarygap: { path: "/offer/salary-gap", render: renderSalaryGap, body: (a) => { const desired = _sal(window.prompt("Your target base salary? (e.g. 150000)")); const actual = _sal(window.prompt("Offer on the table? (blank if none)")); return { desired, actual, advertised: _salRange(a.salary), location: a.location || "" }; } },
+  clausewalk: { path: "/offer/clause-walk", render: renderClauseWalk, body: (a) => ({ text: a.jd || a.notes || "" }) },
+};
+async function runTool(a, tool, btn) {
+  const out = $("#d-tool-out"); const m = TOOL_META[tool]; if (!m || !out) return;
+  if (m.needsJd && !(a.jd || "")) { out.innerHTML = `<p class="muted">Add the job description (via <b>Edit</b>) first — this tool reads it.</p>`; return; }
+  const body = m.body(a);
+  if (body === null) return;  // user cancelled a prompt
+  const label = btn.textContent; btn.disabled = true; btn.textContent = "Working…";
+  out.innerHTML = `<p class="muted">Working…</p>`;
+  try {
+    const r = await api("POST", m.path, body);
+    out.innerHTML = m.render(r);
+    bindToolCopies(out);
+  } catch (e) { out.innerHTML = `<p class="filenote">${esc((e && e.message) || "error")}</p>`; }
+  finally { btn.disabled = false; btn.textContent = label; }
+}
+function copyBtn(text) { return `<button class="btn sm tool-copy" data-copy="${esc(text)}">Copy</button>`; }
+function bindToolCopies(root) {
+  $$(".tool-copy", root).forEach((b) => (b.onclick = () => {
+    const t = b.dataset.copy || "";
+    const w = navigator.clipboard && navigator.clipboard.writeText ? navigator.clipboard.writeText(t) : Promise.reject();
+    w.then(() => { b.textContent = "Copied"; setTimeout(() => (b.textContent = "Copy"), 1200); }).catch(() => window.prompt("Copy:", t));
+  }));
+}
+function renderEval(r) {
+  const d = r.dimensions || {}; const ls = d.levelStrategy || {};
+  const lvlCls = ls.level === "on-target" ? "good" : ls.level === "stretch" ? "ok" : "low";
+  const ai = r.ai;
+  return `<div class="tool-card">
+    <div class="tool-row"><b>Level</b> <span class="pill ${lvlCls}">${esc(ls.level || "?")}</span> ${esc(ls.note || "")}</div>
+    <div class="tool-row"><b>Gaps</b> ${(d.gaps || []).map((g) => `<span class="tag">${esc(g)}</span>`).join(" ") || "<span class='muted'>none obvious</span>"}</div>
+    <div class="tool-row"><b>Comp</b> ${esc(d.comp || "")}</div>
+    <div class="tool-row"><b>Angle</b> ${esc(d.personalization || "")}</div>
+    <div class="tool-row muted">${esc(r.sponsorshipReminder || "")}</div>
+    ${ai ? `<div class="tool-ai"><b>AI read${ai.score ? " · fit " + esc(ai.score) + "/5" : ""}:</b> ${esc(ai.fitSummary || "")}${ai.starAngle ? `<br><b>STAR angle:</b> ${esc(ai.starAngle)}` : ""}</div>` : ""}
+    <div class="filenote">${esc(r.source || "")}</div></div>`;
+}
+function renderResearch(r) {
+  const axes = (r.axes || []).map((x) => `<li><b>${esc(x.title)}</b>${x.summary ? `<div>${esc(x.summary)}</div>` : ""}<div class="muted">Verify: ${esc(x.verify || "")}</div></li>`).join("");
+  return `<div class="tool-card"><ul class="tool-axes">${axes}</ul>
+    <div class="tool-row"><b>Your angle:</b> ${esc(r.candidateAngle || "")}</div>
+    ${r.verifyNote ? `<div class="filenote">${esc(r.verifyNote)}</div>` : ""}<div class="filenote">${esc(r.source || "")}</div></div>`;
+}
+function renderOutreach(r) {
+  const e = r.email || {};
+  return `<div class="tool-card">
+    <div class="tool-row"><b>LinkedIn note</b> ${copyBtn(r.linkedinNote || "")}</div>
+    <pre class="jd-text">${esc(r.linkedinNote || "")}</pre>
+    <div class="tool-row"><b>Email — ${esc(e.subject || "")}</b> ${copyBtn(e.body || "")}</div>
+    <pre class="jd-text">${esc(e.body || "")}</pre>
+    <div class="muted">${esc((e.note) || "Draft only — review and send it yourself.")}</div></div>`;
+}
+function renderCover(r) {
+  return `<div class="tool-card">
+    <div class="tool-row"><b>Cover letter</b> ${copyBtn(r.letter || "")}</div>
+    <pre class="jd-text">${esc(r.letter || "")}</pre>
+    <div class="filenote">${esc(r.source || "")}${r.anchorProject ? " · anchor: " + esc(r.anchorProject) : ""}</div></div>`;
+}
+function renderRedflags(r) {
+  if (!r.count) return `<div class="tool-card"><p class="muted">${esc(r.note || "No obvious red flags.")}</p></div>`;
+  return `<div class="tool-card"><ul class="tool-flags">${(r.flags || []).map((f) => `<li>${esc(f)}</li>`).join("")}</ul>
+    <div class="muted">${esc(r.note || "")}</div></div>`;
+}
+function renderPlan(r) {
+  return `<div class="tool-card"><ul class="tool-plan">${(r.plan || []).map((p) => `<li><b>${esc(p.day)} — ${esc(p.focus)}</b><div>${esc(p.task)}</div></li>`).join("")}</ul></div>`;
+}
+function renderStories(r) {
+  const items = (r.matched || []).map((s) => { const t = s.star || {}; return `<li><b>${esc(s.title)}</b>
+    <div><span class="muted">S</span> ${esc(t.situation || "")}</div>
+    <div><span class="muted">A</span> ${esc(t.action || "")}</div>
+    <div><span class="muted">R</span> ${esc(t.result || "")}</div>
+    <div><span class="muted">Reflection</span> ${esc(t.reflection || "")}</div></li>`; }).join("");
+  const gaps = (r.prepGap || []).map((g) => `<li>${esc(g)}</li>`).join("");
+  return `<div class="tool-card"><ul class="tool-plan">${items}</ul>${gaps ? `<div class="tool-row"><b>Prep this yourself</b></div><ul class="tool-flags">${gaps}</ul>` : ""}</div>`;
+}
+function renderSalaryGap(r) {
+  const adj = r.adjustedToBase ? `<div class="filenote">${esc(String(r.location || ""))} cost-of-living ${esc(String(r.colIndex || ""))} — that offer feels like ~$${Number(r.adjustedToBase).toLocaleString()} at your Houston base.</div>` : "";
+  return `<div class="tool-card">
+    <div class="tool-row"><b>Verdict</b> <span class="pill">${esc(r.verdict || "")}</span></div>
+    <div class="tool-row"><b>Recommendation</b> ${esc(r.recommendation || "")}</div>
+    ${(r.flags || []).length ? `<ul class="tool-flags">${r.flags.map((f) => `<li>${esc(f)}</li>`).join("")}</ul>` : ""}${adj}</div>`;
+}
+function renderClauseWalk(r) {
+  const cl = (r.clausesFound || []).map((c) => `<li><b>${esc(c.clause)}</b><div>${esc(c.question)}</div></li>`).join("");
+  return `<div class="tool-card"><ul class="tool-axes">${cl}</ul><div class="filenote">${esc(r.disclaimer || "")}</div></div>`;
+}
+
 async function runMatch(id) {
   const btn = $("#d-match-btn"), msg = $("#d-match-msg");
   if (btn) { btn.disabled = true; btn.textContent = "Analyzing résumé vs JD…"; }

@@ -574,3 +574,15 @@ input.op-f { flex: 1 1 220px; min-width: 180px; }
 .lp-card-h .lp-tag { margin-left: auto; }
 .lp-card.done { opacity: .6; }
 .lp-card.done .lp-card-h b { text-decoration: line-through; }
+
+/* ---- AI tools panel (deep eval, research, outreach, cover, red flags, prep) ---- */
+.tool-btns { display: flex; flex-wrap: wrap; gap: .4rem; margin-bottom: .5rem; }
+.tool-hint { margin: .1rem 0 .6rem; font-size: .82rem; }
+.tool-out:empty { display: none; }
+.tool-card { border: 1px solid var(--line, #e3e8ef); border-radius: 8px; padding: .7rem .8rem; background: var(--panel, #fbfcfe); }
+.tool-row { margin: .3rem 0; line-height: 1.45; }
+.tool-row b { margin-right: .35rem; }
+.tool-ai { margin-top: .5rem; padding-top: .5rem; border-top: 1px dashed var(--line, #e3e8ef); }
+.tool-axes, .tool-plan, .tool-flags { margin: .3rem 0; padding-left: 1.1rem; }
+.tool-axes li, .tool-plan li, .tool-flags li { margin: .35rem 0; }
+.tool-copy { margin-left: .3rem; }
