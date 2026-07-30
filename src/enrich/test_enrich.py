@@ -37,3 +37,28 @@ def test_addr_extracts_email():
 
 def test_status_rank_is_forward_only_ordering():
     assert L.STATUS_RANK["applied"] < L.STATUS_RANK["screen"] < L.STATUS_RANK["interview"] < L.STATUS_RANK["offer"]
+
+
+def test_generic_sender_detected():
+    # shared ATS / no-reply addresses that must never be stored or matched on
+    assert L._is_generic_sender("no-reply@us.greenhouse.io")
+    assert L._is_generic_sender("no-reply@ashbyhq.com")
+    assert L._is_generic_sender("notification@smartrecruiters.com")
+    assert L._is_generic_sender("Careers-noreply@uh.edu")
+    assert L._is_generic_sender("careers@bigco.com")
+    assert L._is_generic_sender("")  # no @ at all
+    # real recruiter people addresses must NOT be flagged
+    assert not L._is_generic_sender("neal.johnston@airbnb.com")
+    assert not L._is_generic_sender("jane.recruiter@bigco.com")
+
+
+def test_exact_company_match_beats_substring():
+    # the collision fix: a Reddit email must bind to the Reddit app, never to an
+    # earlier-in-scan app via a loose substring
+    apps = [{"appId": "p", "company": "Pinterest"}, {"appId": "r", "company": "Reddit"}]
+    assert L._match_by_name("Reddit", apps) == "r"
+
+
+def test_short_name_avoids_substring_noise():
+    apps = [{"appId": "x", "company": "Microsoft HR Systems"}]
+    assert L._match_by_name("HR", apps) is None  # 2 chars, no exact match -> no risky substring
