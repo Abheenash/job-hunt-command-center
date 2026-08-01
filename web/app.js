@@ -16,6 +16,9 @@ const fmtDate = (epoch) => { try { return _ymd(new Date(epoch * 1000)); } catch 
 
 let APPS = [];
 let editing = null, currentDetail = null;
+let editDocs = [], editDocsOrig = "[]";   // working attachment list for the edit form
+const DOC_KINDS = { resume: "Résumé", cover: "Cover letter" };
+const kindLabel = (k) => DOC_KINDS[k] || "Document";
 let filterStatus = "all", filterState = "", filterDate = "", filterOpt = false, filterReach = "", query = "", sortBy = "updated";
 
 function parseSalary(s) {
@@ -338,7 +341,7 @@ function renderDetail(a) {
         ${a.notes ? `<div class="container"><div class="container-head">Notes</div><div class="container-body"><pre class="jd-text">${esc(a.notes)}</pre></div></div>` : ""}
         ${a.jd ? `<div class="container"><div class="container-head">Job description</div><div class="container-body"><pre class="jd-text">${esc(a.jd)}</pre></div></div>` : ""}
         <div class="container"><div class="container-head">Documents</div><div class="container-body">
-          ${docs.length ? `<div class="doclist">${docs.map((d) => `<a href="#" data-key="${esc(d.docKey)}">${esc(d.filename || "document")}</a>`).join("")}</div>` : `<p class="muted">No résumé attached. Use Edit to add the one you applied with.</p>`}
+          ${docs.length ? `<div class="doclist">${docs.map((d) => `<a href="#" data-key="${esc(d.docKey)}"><span class="dk">${esc(kindLabel(d.kind))}</span> ${esc(d.filename || "document")}</a>`).join("")}</div>` : `<p class="muted">No résumé or cover letter attached. Use Edit to add them.</p>`}
         </div></div>
         ${timeline.length ? `<div class="container"><div class="container-head">Activity</div><div class="container-body"><ul class="timeline">${timeline.map((t) => `<li><span class="tl-date">${t.at ? esc(fmtDate(t.at)) : ""}</span>${esc(t.event || "")}</li>`).join("")}</ul></div></div>` : ""}
       </div>
@@ -637,6 +640,8 @@ function openEdit(id, prefill) {
   $("#edit-title").textContent = id ? "Edit application" : "Log application";
   $("#e-back-label").textContent = id ? "Back to application" : "Back to list";
   $("#form-err").textContent = ""; $("#resume-status").textContent = ""; $("#resume").value = ""; $("#autofill-status").textContent = "";
+  $("#cover-status").textContent = ""; $("#cover-file").value = "";
+  editDocsOrig = JSON.stringify(a.documents || []);
   $("#spon-out").hidden = true; $("#spon-out").innerHTML = "";
   $("#jd").value = a.jd || "";
   populateCf(a.attributes);
@@ -653,12 +658,20 @@ function cancelEdit() { const id = editing; editing = null; pendingOpeningId = n
 const today = () => _ymd(new Date());  // local date (viewer's timezone), not UTC
 
 function renderDocs(docs) {
+  editDocs = docs;   // the working list save() reads from
   $("#docs").innerHTML = docs.length
-    ? "<div class='doclist'>" + docs.map((d) => `<a href="#" data-key="${esc(d.docKey)}">${esc(d.filename || "document")}</a>`).join("") + "</div>" : "";
+    ? "<div class='doclist'>" + docs.map((d, i) =>
+        `<span class="docitem"><a href="#" data-key="${esc(d.docKey)}"><span class="dk">${esc(kindLabel(d.kind))}</span> ${esc(d.filename || "document")}</a>`
+        + `<button type="button" class="doc-x" data-i="${i}" title="Remove attachment" aria-label="Remove">×</button></span>`).join("") + "</div>"
+    : "<p class='muted'>No documents attached yet.</p>";
   $$("#docs a").forEach((el) => (el.onclick = async (e) => {
     e.preventDefault();
     const j = await api("GET", "/download?key=" + encodeURIComponent(el.dataset.key));
     window.open(j.downloadUrl, "_blank");
+  }));
+  $$("#docs .doc-x").forEach((el) => (el.onclick = () => {
+    const i = +el.dataset.i;
+    renderDocs(editDocs.filter((_, idx) => idx !== i));  // drop it from the working list, re-render
   }));
 }
 
@@ -859,17 +872,28 @@ async function saveApp(e) {
   $("#save").disabled = true; $("#form-err").textContent = "";
   try {
     let saved = editing ? await api("PUT", "/applications/" + editing, rec) : await api("POST", "/applications", rec);
+    // Attachments: start from the working list (reflects any removals in the form), then
+    // replace-by-kind for each newly chosen file so a new upload swaps the old one out.
+    let docs = editDocs.slice();
+    const replaceKind = (kind, doc) => { docs = docs.filter((d) => d.kind !== kind).concat([doc]); };
     const file = $("#resume").files[0];
     if (file) {
       $("#resume-status").textContent = "Uploading résumé…";
-      const doc = await uploadDoc(saved.appId, file);
-      saved = await api("PUT", "/applications/" + saved.appId, { documents: (saved.documents || []).concat([doc]) });
-    } else if (lastGen && lastGen.jobId) {
-      // no manual upload but a résumé was generated — attach the compiled PDF directly
+      replaceKind("resume", await uploadDoc(saved.appId, file, "resume"));
+    } else if (!editDocs.some((d) => d.kind === "resume") && lastGen && lastGen.jobId) {
+      // no manual résumé and none already attached, but one was generated — attach the compiled PDF
       try {
         const { doc } = await api("POST", `/applications/${saved.appId}/attach-generated`, { job: lastGen.jobId });
-        if (doc) saved = await api("PUT", "/applications/" + saved.appId, { documents: (saved.documents || []).concat([doc]) });
+        if (doc) replaceKind("resume", doc);
       } catch (_e) { /* PDF not ready / compile failed — the .tex is still downloadable */ }
+    }
+    const coverFile = $("#cover-file").files[0];
+    if (coverFile) {
+      $("#cover-status").textContent = "Uploading cover letter…";
+      replaceKind("cover", await uploadDoc(saved.appId, coverFile, "cover"));
+    }
+    if (JSON.stringify(docs) !== editDocsOrig) {
+      saved = await api("PUT", "/applications/" + saved.appId, { documents: docs });
     }
     const savedId = saved.appId;
     if (pendingOpeningId) { // logged from an opening -> drop it from the radar + flag it tracked
@@ -887,11 +911,11 @@ async function saveApp(e) {
   finally { $("#save").disabled = false; }
 }
 
-async function uploadDoc(appId, file) {
-  const { uploadUrl, docKey } = await api("POST", `/applications/${appId}/documents`, { filename: file.name, kind: "resume" });
+async function uploadDoc(appId, file, kind = "resume") {
+  const { uploadUrl, docKey } = await api("POST", `/applications/${appId}/documents`, { filename: file.name, kind });
   const put = await fetch(uploadUrl, { method: "PUT", body: file });
-  if (!put.ok) throw new Error("résumé upload failed");
-  return { docKey, filename: file.name, kind: "resume", at: Math.floor(Date.now() / 1000) };
+  if (!put.ok) throw new Error(`${kindLabel(kind).toLowerCase()} upload failed`);
+  return { docKey, filename: file.name, kind, at: Math.floor(Date.now() / 1000) };
 }
 
 async function delApp(id) {

@@ -157,6 +157,12 @@ main { flex: 1; min-width: 0; padding: 1.1rem 1.5rem 2rem; max-width: 1180px; }
 .check2 { display: flex; align-items: center; gap: .5rem; font-size: .85rem; color: var(--text); align-self: end; }
 .check2 input { width: auto; }
 .docs .doclist { display: flex; flex-wrap: wrap; gap: .6rem; } .docs a { font-size: .85rem; }
+.doclist .docitem { display: inline-flex; align-items: center; gap: .35rem; }
+.doclist .dk { display: inline-block; font-size: .68rem; text-transform: uppercase; letter-spacing: .03em;
+  padding: .05rem .4rem; border-radius: 999px; background: var(--chip, rgba(127,127,127,.16)); color: var(--muted); }
+.doclist .doc-x { border: none; background: none; color: var(--muted); cursor: pointer; font-size: 1rem;
+  line-height: 1; padding: 0 .2rem; border-radius: 4px; }
+.doclist .doc-x:hover { color: var(--danger, #d33); background: rgba(211,51,51,.12); }
 .sheet-actions { display: flex; align-items: center; gap: .6rem; }
 
 /* settings */
