@@ -592,3 +592,39 @@ input.op-f { flex: 1 1 220px; min-width: 180px; }
 .tool-axes, .tool-plan, .tool-flags { margin: .3rem 0; padding-left: 1.1rem; }
 .tool-axes li, .tool-plan li, .tool-flags li { margin: .35rem 0; }
 .tool-copy { margin-left: .3rem; }
+
+/* ---------- H-1B Sponsors view (DOL LCA data) ---------------------------- */
+.sp-tools { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-bottom: .9rem; }
+.sp-tools .side-input { width: auto; flex: 0 0 auto; min-width: 130px; margin: 0; }
+.sp-tools .grow { flex: 1 1 200px; min-width: 180px; }
+.sp-tools #sp-count { margin-left: auto; white-space: nowrap; }
+.tablewrap { overflow-x: auto; border: 1px solid var(--border-soft); border-radius: 12px; }
+table.sp-table { width: 100%; border-collapse: collapse; font-size: .86rem; min-width: 820px; }
+table.sp-table th, table.sp-table td { text-align: left; padding: .55rem .7rem; border-bottom: 1px solid var(--border-soft); white-space: nowrap; vertical-align: top; }
+table.sp-table th { position: sticky; top: 0; background: var(--bg); color: var(--muted); font-size: .72rem; text-transform: uppercase; letter-spacing: .03em; z-index: 1; }
+table.sp-table td.num, table.sp-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
+table.sp-table tbody tr:hover { background: #f7f8fa; }
+.sp-emp { white-space: normal; min-width: 210px; }
+.sp-emp b { color: var(--text); }
+.sp-sub { color: var(--muted); font-size: .74rem; font-weight: 400; display: block; margin-top: 2px; }
+.sp-lvl { display: inline-block; min-width: 20px; text-align: center; border: 1px solid var(--border); border-radius: 5px; padding: 0 6px; font-size: .74rem; }
+.sp-yrs { white-space: normal; min-width: 150px; }
+.sp-act { display: flex; gap: .35rem; }
+.sp-act .btn.sm { white-space: nowrap; }
+/* launchpad: proven-sponsors (DOL) lead section */
+.lp-sec.lp-dol { border-left: 3px solid var(--orange); padding-left: .9rem; }
+
+/* sponsor company cards + detail */
+.sp-grid { margin-top: .1rem; }
+.sp-card .role { color: var(--muted); font-size: .82rem; margin: .1rem 0 .25rem; }
+.sp-card .meta { color: var(--muted); font-size: .78rem; }
+.sp-badge { margin-left: auto; background: var(--nav); color: #fff; border-radius: 20px; padding: .12rem .55rem; font-size: .76rem; font-weight: 700; flex: none; }
+.sp-detail { display: grid; grid-template-columns: 1fr 1.5fr; gap: 1rem; align-items: start; }
+@media (max-width: 900px) { .sp-detail { grid-template-columns: 1fr; } }
+.sp-h { font-size: .74rem; text-transform: uppercase; letter-spacing: .03em; color: var(--muted); margin: 1.1rem 0 .5rem; }
+.container-body > .sp-h:first-child { margin-top: 0; }
+.sp-yr { display: flex; align-items: center; gap: .6rem; padding: .18rem 0; font-size: .85rem; }
+.sp-yr > span:first-child { width: 56px; color: var(--muted); }
+.sp-yr > b { width: 34px; text-align: right; font-variant-numeric: tabular-nums; }
+.sp-yrbar { flex: 1; height: 8px; background: var(--border-soft); border-radius: 5px; overflow: hidden; }
+.sp-yrbar i { display: block; height: 100%; background: var(--orange); }
