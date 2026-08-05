@@ -1434,89 +1434,69 @@ function lpCoLinks(arr, checked) {
   }).join("");
 }
 function renderLaunchpad(el) {
-  const checks = lpChecks(); lpSaveChecks(checks);          // persist the weekly reset
-  const spTX = SPONSORS.length ? sponsorCoItems(sponsorCompanies(24, true)) : [];
-  const spTop = SPONSORS.length ? sponsorCoItems(sponsorCompanies(30, false)) : [];
-  const coKeys = [...LP_PLATFORMS.map((p) => "plat:" + p.name), ...LP_AGGREGATORS.map((x) => x.u),
-    ...LP_UH.map((x) => x.u), ...spTX.map((x) => x.u), ...spTop.map((x) => x.u), ...LP_COMPANIES().map((x) => x.u)];
+  const checks = lpChecks(); lpSaveChecks(checks);          // persist the daily reset
+  const txCos = SPONSORS.length ? sponsorCompanies(15, true) : [];
+  const txNames = new Set(txCos.map((c) => c.employer));
+  const natCos = SPONSORS.length ? sponsorCompanies(40, false).filter((c) => !txNames.has(c.employer)).slice(0, 15) : [];
+  const spTX = sponsorCoItems(txCos);
+  const spTop = sponsorCoItems(natCos);
+  const boardPlats = LP_PLATFORMS.slice(0, 4);   // LinkedIn, Indeed, Dice, Amazon
+  const coKeys = [...spTX.map((x) => x.u), ...spTop.map((x) => x.u), ...LP_CAPEXEMPT.map((x) => x.u),
+    ...boardPlats.map((p) => "plat:" + p.name), ...LP_AGGREGATORS.map((x) => x.u)];
   const coTotal = coKeys.length;
   const coDone = () => coKeys.filter((k) => lpChecks().checked[k]).length;
   el.innerHTML = `<div class="page-head"><div>
       <h1>Job-Search Launchpad</h1>
-      <p class="sub">Curated deep-links into every job platform — pre-filtered for <b>your</b> profile (entry/associate cloud · DevOps · SRE, Texas + remote, recent postings) — now led by <b>proven H-1B sponsors pulled from DOL LCA data</b>, plus sponsor-first boards, your UH alumni channel, and hand-picked target companies. Open a link, it lands you on a live search. No scraping; always fresh.</p>
+      <p class="sub">Where to apply, in priority order for a sponsorship candidate — <b>proven H-1B sponsors</b> (from your DOL LCA data) and <b>cap-exempt</b> employers first, then your UH channel, search strings, and the best boards. Company links open their <b>careers page</b>. Tick each as you sweep it; the checklist resets daily.</p>
     </div></div>
     <div class="container"><div class="container-body lp-wrap">
 
       <section class="lp-callout">
-        <h3>The move now: outreach beats screening</h3>
-        <p>You've applied at real volume — but every one is a <b>cold</b> application, and for a sponsorship candidate those convert worst. A <b>referral is worth ~5–10 cold applications.</b> For each role you apply to: find <b>one person</b> at that company (a <b>UH alum is warmest</b>), send them a short referral note, and set a <b>5–7 day follow-up</b>. Fewer new applications, more human contact on the ones you have.</p>
-      </section>
-
-      <section class="lp-sec">
-        <h3>Your search terms</h3>
-        <div class="lp-chips">${LP_TITLES.map((t) => `<button class="lp-chip" data-copytext="${esc(t)}" title="Click to copy">${esc(t)}</button>`).join("")}</div>
-        <div class="lp-copyrow"><code class="lp-code" id="lp-bool">${esc(LP_BOOLEAN)}</code><button class="btn sm" id="lp-copy-bool">Copy boolean</button></div>
-        <div class="lp-copyrow"><code class="lp-code" id="lp-spon">${esc(LP_SPONSOR)}</code><button class="btn sm" id="lp-copy-spon">Copy sponsor filter</button></div>
-        <p class="lp-hint">Paste the boolean into LinkedIn/Indeed keyword boxes. Append the sponsor filter to hide roles that exclude visas. Click any title chip to copy it.</p>
-      </section>
-
-      <section class="lp-sec">
-        <h3>Job platforms <span class="lp-muted">— pre-filtered searches</span></h3>
-        <div class="lp-grid">
-          ${LP_PLATFORMS.map((p) => { const on = !!checks.checked["plat:" + p.name]; return `<div class="lp-card${on ? " done" : ""}">
-            <div class="lp-card-h"><input type="checkbox" class="lp-co-chk" data-u="plat:${esc(p.name)}"${on ? " checked" : ""} title="Mark this platform done for today" /><b>${esc(p.name)}</b><span class="lp-tag">${esc(p.tag)}</span></div>
-            <p class="lp-tip">${esc(p.tip)}</p>
-            <div class="lp-links">${lpLinks(p.links)}</div>
-          </div>`; }).join("")}
-        </div>
-      </section>
-
-      <section class="lp-sec">
-        <h3>Sponsor-first &amp; startup boards <span class="lp-muted">— where you haven't been yet</span></h3>
-        <p class="lp-hint">Beyond LinkedIn/Indeed/Dice. These either filter for visa sponsorship or surface startups (which sponsor more readily and have less competition). Tick each once you've swept it today.</p>
-        <div class="lp-links wide">${lpCoLinks(LP_AGGREGATORS, checks.checked)}</div>
-      </section>
-
-      <section class="lp-sec">
-        <h3>University of Houston <span class="lp-muted">— your warmest, most underused channel</span></h3>
-        <p class="lp-hint">Alumni referrals + cap-exempt hiring + fall recruiting (opening now). Start here before another cold board.</p>
-        <div class="lp-links wide">${lpCoLinks(LP_UH, checks.checked)}</div>
-      </section>
-
-      <section class="lp-sec">
-        <h3>Visa-sponsorship research <span class="lp-muted">— check before you apply</span></h3>
-        <div class="lp-links wide">${lpLinks(LP_SPONSOR_TOOLS)}</div>
+        <p><b>Lead with referrals.</b> A referral is worth ~5–10 cold applications — for each role, find one person there (a <b>UH alum is warmest</b>), send a short note, and set a 5–7 day follow-up. Fewer applications, more human contact.</p>
       </section>
 
       <section class="lp-sec lp-dol">
         <div class="lp-co-head">
-          <h3>Proven H-1B sponsors for your roles <span class="lp-muted">— from DOL LCA data${SPON_SUMMARY ? ` (${(SPON_SUMMARY.total_employers || 0).toLocaleString("en-US")} employers)` : ""}</span></h3>
+          <h3>Proven H-1B sponsors <span class="lp-muted">— apply at their careers page${SPON_SUMMARY ? ` (${(SPON_SUMMARY.total_employers || 0).toLocaleString("en-US")} in the data)` : ""}</span></h3>
+          <div class="lp-co-tools"><span id="lp-co-progress" class="lp-co-prog">${coDone()} / ${coTotal} swept today</span><button class="btn sm" id="lp-co-reset">Reset today</button></div>
         </div>
-        <p class="lp-hint">Employers that actually <b>certified entry-level (level I/II) H-1B filings</b> in your infra lane over FY2024–FY2026 — H-1B-dependent employers and staffing agencies removed. Each link runs a LinkedIn <b>entry/associate</b> search at that company. Full detail, wages and filters are in the <b>H-1B Sponsors</b> tab. Tick each once you've swept it today.</p>
-        <h4 class="lp-sub">Texas sponsors <span class="lp-muted">(home-field — apply here first)</span></h4>
+        <p class="lp-hint">Employers that actually <b>certified entry-level (level I/II) H-1B filings</b> in your infra lane, FY2024–FY2026 (H-1B-dependent employers and staffing agencies removed). Full wages, roles and filters are in the <b>H-1B Sponsors</b> tab.</p>
+        <h4 class="lp-sub">Texas sponsors <span class="lp-muted">(home-field — start here)</span></h4>
         <div class="lp-links grid3">${spTX.length ? lpCoLinks(spTX, checks.checked) : `<p class="lp-hint">Loading sponsor data…</p>`}</div>
-        <h4 class="lp-sub">Top sponsors nationwide <span class="lp-muted">(by certified filing volume)</span></h4>
+        <h4 class="lp-sub">Top sponsors nationwide</h4>
         <div class="lp-links grid3">${spTop.length ? lpCoLinks(spTop, checks.checked) : ""}</div>
       </section>
 
       <section class="lp-sec">
-        <div class="lp-co-head">
-          <h3>Target companies <span class="lp-muted">— hand-picked, apply direct from their career pages</span></h3>
-          <div class="lp-co-tools"><span id="lp-co-progress" class="lp-co-prog">${coDone()} / ${coTotal} swept today</span><button class="btn sm" id="lp-co-reset">Reset today</button></div>
-        </div>
-        <p class="lp-hint">Every platform, board, and company here has a checkbox — tick each once you've swept / applied to it, and they <b>reset every day</b> so each morning is a fresh pass (saved in this browser). The counter above tracks the whole page. <b>Verify the sponsorship clause on the specific req.</b> = Texas / no relocation.</p>
-        <h4 class="lp-sub">Cap-exempt — Texas <span class="lp-muted">(H-1B lottery-proof — apply here first)</span></h4>
+        <h3>Cap-exempt employers <span class="lp-muted">— H-1B lottery-proof, apply anytime</span></h3>
+        <p class="lp-hint">Universities and nonprofit hospitals are exempt from the H-1B cap/lottery — file year-round, no lottery risk. Your strongest structural advantage.</p>
         <div class="lp-links grid3">${lpCoLinks(LP_CAPEXEMPT, checks.checked)}</div>
-        <h4 class="lp-sub">Texas employers <span class="lp-muted">(home-field: UH-alumni density)</span></h4>
-        <div class="lp-links grid3">${lpCoLinks(LP_TEXAS, checks.checked)}</div>
-        <h4 class="lp-sub">Houston energy majors <span class="lp-muted">(large local cloud/IT orgs)</span></h4>
-        <div class="lp-links grid3">${lpCoLinks(LP_ENERGY, checks.checked)}</div>
-        <h4 class="lp-sub">Big-tech &amp; cloud-product <span class="lp-muted">(best stack fit, sponsor at scale)</span></h4>
-        <div class="lp-links grid3">${lpCoLinks(LP_BIGTECH, checks.checked)}</div>
-        <h4 class="lp-sub">Fintech &amp; finance <span class="lp-muted">(heavy sponsors, big cloud/SRE orgs)</span></h4>
-        <div class="lp-links grid3">${lpCoLinks(LP_FINTECH, checks.checked)}</div>
-        <h4 class="lp-sub">Consultancies &amp; AWS partners <span class="lp-muted">(OPT→H-1B early-career tracks)</span></h4>
-        <div class="lp-links grid3">${lpCoLinks(LP_CONSULTANCY, checks.checked)}</div>
+      </section>
+
+      <section class="lp-sec">
+        <h3>University of Houston <span class="lp-muted">— your warmest channel</span></h3>
+        <p class="lp-hint">Alumni referrals + fall recruiting (opening now). Start here before another cold board.</p>
+        <div class="lp-links wide">${lpLinks(LP_UH)}</div>
+      </section>
+
+      <section class="lp-sec">
+        <h3>Search terms <span class="lp-muted">— paste into any board's keyword box</span></h3>
+        <div class="lp-chips">${LP_TITLES.map((t) => `<button class="lp-chip" data-copytext="${esc(t)}" title="Click to copy">${esc(t)}</button>`).join("")}</div>
+        <div class="lp-copyrow"><code class="lp-code" id="lp-bool">${esc(LP_BOOLEAN)}</code><button class="btn sm" id="lp-copy-bool">Copy boolean</button></div>
+        <div class="lp-copyrow"><code class="lp-code" id="lp-spon">${esc(LP_SPONSOR)}</code><button class="btn sm" id="lp-copy-spon">Copy sponsor filter</button></div>
+        <p class="lp-hint">Paste the boolean into LinkedIn/Indeed; append the sponsor filter to hide roles that exclude visas.</p>
+      </section>
+
+      <section class="lp-sec">
+        <h3>Best boards to search <span class="lp-muted">— pre-filtered for entry-level + recent</span></h3>
+        <div class="lp-grid">
+          ${boardPlats.map((p) => { const on = !!checks.checked["plat:" + p.name]; return `<div class="lp-card${on ? " done" : ""}">
+            <div class="lp-card-h"><input type="checkbox" class="lp-co-chk" data-u="plat:${esc(p.name)}"${on ? " checked" : ""} title="Mark done for today" /><b>${esc(p.name)}</b><span class="lp-tag">${esc(p.tag)}</span></div>
+            <div class="lp-links">${lpLinks(p.links)}</div>
+          </div>`; }).join("")}
+        </div>
+        <h4 class="lp-sub">Sponsor-first &amp; startup boards <span class="lp-muted">— higher sponsorship signal</span></h4>
+        <div class="lp-links wide">${lpCoLinks(LP_AGGREGATORS, checks.checked)}</div>
       </section>
 
     </div></div>`;
@@ -1639,11 +1619,73 @@ function spDistinct(key) {
   SPONSORS.forEach((g) => { const v = g[key]; if (Array.isArray(v)) v.forEach((x) => s.add(x)); else if (v) s.add(v); });
   return [...s].sort();
 }
-// aggregate groups -> one entry per employer (for the Openings launchpad)
+// Career-site links for the proven-sponsor lists — direct URL for known employers,
+// else a Google "<company> careers" search (lands on their careers page).
+const CAREER_SITES = [
+  [/cognizant/i, "https://careers.cognizant.com/global/en"],
+  [/\bgoogle\b/i, "https://www.google.com/about/careers/applications/jobs/results/"],
+  [/hewlett[ -]?packard|\bhpe\b/i, "https://careers.hpe.com/"],
+  [/microsoft/i, "https://jobs.careers.microsoft.com/global/en/search"],
+  [/ltimindtree/i, "https://www.ltimindtree.com/careers/"],
+  [/randstad/i, "https://www.randstadusa.com/jobs/"],
+  [/fidelity/i, "https://jobs.fidelity.com/"],
+  [/\bibm\b/i, "https://www.ibm.com/careers/search"],
+  [/ernst\s*&\s*young/i, "https://www.ey.com/en_us/careers"],
+  [/linkedin/i, "https://careers.linkedin.com/"],
+  [/amazon|\baws\b/i, "https://www.amazon.jobs/en/search"],
+  [/\bcisco\b/i, "https://jobs.cisco.com/jobs/SearchJobs/"],
+  [/wal-?mart/i, "https://careers.walmart.com/"],
+  [/\bford\b/i, "https://careers.ford.com/"],
+  [/accenture/i, "https://www.accenture.com/us-en/careers/jobsearch"],
+  [/\bcgi\b/i, "https://www.cgi.com/en/careers"],
+  [/goldman sachs/i, "https://www.goldmansachs.com/careers/"],
+  [/mastercard/i, "https://careers.mastercard.com/us/en"],
+  [/rockwell/i, "https://www.rockwellautomation.com/en-us/company/careers.html"],
+  [/akamai/i, "https://www.akamai.com/careers"],
+  [/intercontinental exchange/i, "https://careers.ice.com/"],
+  [/persistent/i, "https://careers.persistent.com/"],
+  [/tata consultancy|\btcs\b/i, "https://www.tcs.com/careers"],
+  [/infosys/i, "https://www.infosys.com/careers/"],
+  [/wipro/i, "https://careers.wipro.com/"],
+  [/tech mahindra/i, "https://careers.techmahindra.com/"],
+  [/capgemini/i, "https://www.capgemini.com/us-en/careers/job-search/"],
+  [/deloitte/i, "https://apply.deloitte.com/"],
+  [/\boracle\b/i, "https://careers.oracle.com/jobs"],
+  [/salesforce/i, "https://careers.salesforce.com/en/jobs/"],
+  [/nvidia/i, "https://www.nvidia.com/en-us/about-nvidia/careers/"],
+  [/\bapple\b/i, "https://jobs.apple.com/en-us/search"],
+  [/meta platforms|metacareers|\bfacebook\b/i, "https://www.metacareers.com/jobs"],
+  [/jpmorgan|jp\s*morgan|j\.p\.\s*morgan/i, "https://careers.jpmorgan.com/us/en/students"],
+  [/charles schwab|\bschwab\b/i, "https://www.schwabjobs.com/"],
+  [/\busaa\b/i, "https://www.usaajobs.com/"],
+  [/charter communications|spectrum/i, "https://jobs.spectrum.com/"],
+  [/comcast/i, "https://jobs.comcast.com/"],
+  [/verizon/i, "https://mycareer.verizon.com/"],
+  [/\bvisa\b/i, "https://corporate.visa.com/en/jobs.html"],
+  [/paypal/i, "https://careers.pypl.com/home/"],
+  [/capital one/i, "https://www.capitalonecareers.com/search-jobs"],
+  [/american express|\bamex\b/i, "https://www.americanexpress.com/en-us/careers/"],
+  [/wells fargo/i, "https://www.wellsfargojobs.com/en/jobs/"],
+  [/\bdiscover\b|dfs corporate|discover financial/i, "https://jobs.discover.com/"],
+  [/compunnel/i, "https://www.compunnel.com/careers/"],
+  [/virtusa/i, "https://careers.virtusa.com/"],
+  [/mphasis/i, "https://careers.mphasis.com/"],
+];
+function spCareerUrl(company) {
+  for (const [re, url] of CAREER_SITES) if (re.test(company)) return url;
+  return `https://www.google.com/search?q=${encodeURIComponent(company + " careers")}`;
+}
+// title-case long ALL-CAPS words, keep short acronyms (IBM, USA, CGI, DFS)
+function spTitle(name) {
+  return String(name).replace(/\b([A-Z][A-Z]{3,})\b/g, (w) => w.charAt(0) + w.slice(1).toLowerCase());
+}
+// aggregate groups -> one entry per employer (deduped by normalized name)
 function sponsorCompanies(limit, txOnly) {
   const by = {};
   SPONSORS.forEach((g) => {
-    const e = by[g.employer] || (by[g.employer] = { employer: g.employer, filings: 0, roles: new Set(), states: new Set() });
+    const k = spNorm(g.employer);
+    const e = by[k] || (by[k] = { employer: g.employer, filings: 0, roles: new Set(), states: new Set() });
+    if (g.employer.length < e.employer.length) e.employer = g.employer;
     e.filings += g.filings; if (g.role) e.roles.add(g.role); (g.states || []).forEach((s) => e.states.add(s));
   });
   let arr = Object.values(by);
@@ -1652,10 +1694,7 @@ function sponsorCompanies(limit, txOnly) {
   return arr.slice(0, limit);
 }
 function sponsorCoItems(list) {
-  return list.map((e) => ({
-    l: `${e.employer} — ${e.filings} certified · ${[...e.roles].slice(0, 3).join(", ")}`,
-    u: spLinkedIn(e.employer),
-  }));
+  return list.map((e) => ({ l: spTitle(e.employer), u: spCareerUrl(e.employer), note: `${e.filings.toLocaleString("en-US")} certified` }));
 }
 
 // normalize an employer name so "Foo, LLC" and "Foo LLC d/b/a Bar" merge to one company
