@@ -613,3 +613,18 @@ table.sp-table tbody tr:hover { background: #f7f8fa; }
 .sp-act .btn.sm { white-space: nowrap; }
 /* launchpad: proven-sponsors (DOL) lead section */
 .lp-sec.lp-dol { border-left: 3px solid var(--orange); padding-left: .9rem; }
+
+/* sponsor company cards + detail */
+.sp-grid { margin-top: .1rem; }
+.sp-card .role { color: var(--muted); font-size: .82rem; margin: .1rem 0 .25rem; }
+.sp-card .meta { color: var(--muted); font-size: .78rem; }
+.sp-badge { margin-left: auto; background: var(--nav); color: #fff; border-radius: 20px; padding: .12rem .55rem; font-size: .76rem; font-weight: 700; flex: none; }
+.sp-detail { display: grid; grid-template-columns: 1fr 1.5fr; gap: 1rem; align-items: start; }
+@media (max-width: 900px) { .sp-detail { grid-template-columns: 1fr; } }
+.sp-h { font-size: .74rem; text-transform: uppercase; letter-spacing: .03em; color: var(--muted); margin: 1.1rem 0 .5rem; }
+.container-body > .sp-h:first-child { margin-top: 0; }
+.sp-yr { display: flex; align-items: center; gap: .6rem; padding: .18rem 0; font-size: .85rem; }
+.sp-yr > span:first-child { width: 56px; color: var(--muted); }
+.sp-yr > b { width: 34px; text-align: right; font-variant-numeric: tabular-nums; }
+.sp-yrbar { flex: 1; height: 8px; background: var(--border-soft); border-radius: 5px; overflow: hidden; }
+.sp-yrbar i { display: block; height: 100%; background: var(--orange); }

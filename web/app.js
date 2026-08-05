@@ -210,7 +210,7 @@ function setView(v) {
   if (v === "todo") { renderTodo(); showOnly("#todo-view"); }
   else if (v === "inbox") { renderInbox(); showOnly("#inbox-view"); }
   else if (v === "openings") { renderOpenings(); showOnly("#openings-view"); }
-  else if (v === "sponsors") { renderSponsors(); showOnly("#sponsors-view"); loadSponsors(); }
+  else if (v === "sponsors") { spOpen = null; renderSponsors(); showOnly("#sponsors-view"); loadSponsors(); }
   else { showOnly("#list-view"); }
 }
 
@@ -1608,6 +1608,8 @@ let SPONSORS = [];
 let SPON_SUMMARY = null;
 let SPON_LOADED = false;
 let spF = { level: "both", role: "", state: "", q: "", sort: "filings" };
+let SPON_CO = [];      // one entry per employer (all its role/level groups aggregated)
+let spOpen = null;     // employer name when a company detail is open, else null
 const SPON_KW = '(DevOps OR SRE OR "site reliability" OR cloud OR platform OR infrastructure OR systems)';
 
 async function loadSponsors() {
@@ -1621,6 +1623,7 @@ async function loadSponsors() {
     SPONSORS = Array.isArray(s) ? s : [];
     SPON_SUMMARY = sum;
   } catch (_e) { SPONSORS = []; }
+  SPON_CO = spAggregate();
   const c = $("#sponsors-count");
   if (c) c.textContent = SPON_SUMMARY ? String(SPON_SUMMARY.total_employers) : (SPONSORS.length ? String(SPONSORS.length) : "");
   if (currentView === "sponsors") renderSponsors();
@@ -1655,45 +1658,113 @@ function sponsorCoItems(list) {
   }));
 }
 
-function spFiltered() {
+// normalize an employer name so "Foo, LLC" and "Foo LLC d/b/a Bar" merge to one company
+function spNorm(name) {
+  let n = String(name).toUpperCase().replace(/\bD\/?B\/?A\b.*$/, "");
+  n = n.replace(/[^A-Z0-9 ]/g, " ").replace(/\b(INC|INCORPORATED|LLC|CORP|CORPORATION|LTD|LIMITED|LP|LLP|CO|COMPANY|USA|US|NA)\b/g, " ").replace(/\s+/g, " ").trim();
+  return n || String(name).toUpperCase().trim();
+}
+// aggregate the flat groups into one entry per employer
+function spAggregate() {
+  const by = {};
+  SPONSORS.forEach((g) => {
+    const key = spNorm(g.employer);
+    const e = by[key] || (by[key] = { employer: g.employer, filings: 0, groups: [],
+      roles: new Set(), levels: new Set(), states: new Set(), cities: new Set(), years: new Set(), by_year: {} });
+    if (g.employer.length < e.employer.length) e.employer = g.employer; // prefer the cleanest display name
+    e.filings += g.filings; e.groups.push(g);
+    if (g.role) e.roles.add(g.role); if (g.level) e.levels.add(g.level);
+    (g.states || []).forEach((s) => e.states.add(s));
+    (g.cities || []).forEach((c) => e.cities.add(c));
+    (g.years || []).forEach((y) => e.years.add(y));
+    Object.entries(g.by_year || {}).forEach(([y, n]) => { e.by_year[y] = (e.by_year[y] || 0) + n; });
+  });
+  return Object.values(by);
+}
+function spInitials(name) {
+  const w = String(name).replace(/[^A-Za-z0-9 ]/g, " ").trim().split(/\s+/);
+  return (((w[0] || "")[0] || "") + ((w[1] || "")[0] || "")).toUpperCase() || "H";
+}
+function spFilteredCompanies() {
   const q = spF.q.trim().toLowerCase();
-  const rows = SPONSORS.filter((g) => {
-    if (spF.level !== "both" && g.level !== spF.level) return false;
-    if (spF.role && g.role !== spF.role) return false;
-    if (spF.state && !(g.states || []).includes(spF.state)) return false;
-    if (q && !g.employer.toLowerCase().includes(q)) return false;
+  const rows = SPON_CO.filter((c) => {
+    if (q && !c.employer.toLowerCase().includes(q)) return false;
+    if (spF.level !== "both" && !c.groups.some((g) => g.level === spF.level)) return false;
+    if (spF.role && !c.roles.has(spF.role)) return false;
+    if (spF.state && !c.states.has(spF.state)) return false;
     return true;
   });
   const cmp = {
     filings: (a, b) => b.filings - a.filings,
-    wage: (a, b) => (b.median_wage || 0) - (a.median_wage || 0),
+    roles: (a, b) => b.roles.size - a.roles.size || b.filings - a.filings,
     company: (a, b) => (a.employer.toLowerCase() < b.employer.toLowerCase() ? -1 : 1),
   }[spF.sort] || ((a, b) => b.filings - a.filings);
   return rows.slice().sort(cmp);
 }
-function spRow(g) {
-  const consistent = (g.years || []).length >= 2 ? `<span class="tag ok" title="Certified in ${g.years.length} fiscal years">consistent</span>` : "";
-  const range = (g.min_wage && g.max_wage) ? `<span class="sp-sub">$${Math.round(g.min_wage / 1000)}k–$${Math.round(g.max_wage / 1000)}k</span>` : "";
-  const emp = esc(g.employer), role = esc(g.role);
-  return `<tr>
-    <td class="sp-emp"><b>${emp}</b><div class="sp-sub">${esc((g.cities || []).slice(0, 3).join(", "))}</div></td>
-    <td>${role}</td>
-    <td><span class="sp-lvl">${esc(g.level)}</span></td>
-    <td class="num">${g.filings}</td>
-    <td class="num">$${Number(g.median_wage).toLocaleString("en-US")}${range}</td>
-    <td class="sp-yrs">${esc((g.years || []).join(", "))} ${consistent}</td>
-    <td>${esc((g.states || []).join(", "))}</td>
-    <td class="sp-act">
-      <a class="btn sm" href="${spLinkedIn(g.employer)}" target="_blank" rel="noopener">Openings</a>
-      <button class="btn sm primary sp-log" data-c="${esc(g.employer)}" data-t="${role}">+ Log</button>
-    </td></tr>`;
+function spCard(c) {
+  const consistent = c.years.size >= 2 ? `<span class="tag rf">consistent</span>` : "";
+  const tx = c.states.has("TX") ? `<span class="tag st">TX</span>` : "";
+  const chips = [...c.roles].slice(0, 3).map((r) => `<span class="tag">${esc(r)}</span>`).join("");
+  const lvl = [...c.levels].sort().join("/");
+  const yrs = [...c.years].sort();
+  return `<article class="card sp-card" data-emp="${esc(c.employer)}">
+    <div class="card-h"><span class="card-ico">${spInitials(c.employer)}</span><b>${esc(c.employer)}</b><span class="sp-badge">${c.filings.toLocaleString("en-US")}</span></div>
+    <div class="role">${c.roles.size} role${c.roles.size > 1 ? "s" : ""} · level ${esc(lvl)} · ${c.states.size} state${c.states.size > 1 ? "s" : ""}</div>
+    <div class="meta">${esc(yrs.join(", "))}${yrs.length ? " · " : ""}${c.filings.toLocaleString("en-US")} certified filing${c.filings > 1 ? "s" : ""}</div>
+    <div class="tags">${chips}${tx}${consistent}</div>
+  </article>`;
 }
-function renderSponsorRows() {
-  const body = $("#sp-body"); if (!body) return;
-  const rows = spFiltered();
-  body.innerHTML = rows.length ? rows.map(spRow).join("") : `<tr><td colspan="8" class="empty">No sponsors match these filters.</td></tr>`;
-  const n = $("#sp-count"); if (n) n.textContent = `${rows.length.toLocaleString("en-US")} groups`;
-  $$("#sponsors-view .sp-log").forEach((b) => (b.onclick = () => openEdit(null, { company: b.dataset.c, title: b.dataset.t, sponsors: true })));
+function renderSponsorGrid() {
+  const grid = $("#sp-grid"); if (!grid) return;
+  const rows = spFilteredCompanies();
+  grid.innerHTML = rows.length ? rows.map(spCard).join("") : `<p class="empty" style="grid-column:1/-1">No sponsors match these filters.</p>`;
+  const n = $("#sp-count"); if (n) n.textContent = `${rows.length.toLocaleString("en-US")} compan${rows.length === 1 ? "y" : "ies"}`;
+  $$("#sp-grid .sp-card").forEach((c) => (c.onclick = () => openSpon(c.dataset.emp)));
+}
+function openSpon(emp) {
+  const c = SPON_CO.find((x) => x.employer === emp); if (!c) return;
+  spOpen = emp;
+  const el = $("#sponsors-view"); if (!el) return;
+  const money = (n) => "$" + Number(n || 0).toLocaleString("en-US");
+  const groups = c.groups.slice().sort((a, b) => b.filings - a.filings);
+  const yrs = Object.entries(c.by_year).sort();
+  const yrMax = Math.max(1, ...yrs.map(([, n]) => n));
+  const consistent = c.years.size >= 2 ? `<span class="tag rf">consistent sponsor</span>` : "";
+  el.innerHTML = `
+  <button class="backlink" id="sp-back"><svg class="i"><use href="#ic-back"/></svg> All sponsors</button>
+  <div class="page-head"><div><h1>${esc(c.employer)} ${consistent}</h1>
+    <p class="sub">Certified entry-level (level I/II) H-1B filings in your infra lane, FY2024–FY2026 — from DOL LCA data.</p></div></div>
+  <div class="grid widgets">
+    <div class="stat"><b>${c.filings.toLocaleString("en-US")}</b><span>Certified filings</span></div>
+    <div class="stat"><b>${c.roles.size}</b><span>Role famil${c.roles.size === 1 ? "y" : "ies"}</span></div>
+    <div class="stat"><b>${[...c.levels].sort().join(" / ")}</b><span>Wage level(s)</span></div>
+    <div class="stat"><b>${c.states.size}</b><span>Worksite states</span></div>
+    <div class="stat"><b>${[...c.years].sort().join(", ") || "—"}</b><span>Years active</span></div>
+  </div>
+  <div class="sp-detail">
+    <div class="container"><div class="container-body">
+      <h3 class="sp-h">Filings by year</h3>
+      ${yrs.length ? yrs.map(([y, n]) => `<div class="sp-yr"><span>FY${esc(y)}</span><span class="sp-yrbar"><i style="width:${Math.round((n / yrMax) * 100)}%"></i></span><b>${n}</b></div>`).join("") : `<p class="lp-muted">—</p>`}
+      <h3 class="sp-h">Worksite states</h3><p>${esc([...c.states].sort().join(", ")) || "—"}</p>
+      <h3 class="sp-h">Cities</h3><p class="lp-muted">${esc([...c.cities].slice(0, 24).join(", ")) || "—"}</p>
+    </div></div>
+    <div class="container"><div class="container-body">
+      <h3 class="sp-h">By role &amp; level — median wage, level, filings</h3>
+      <div class="tablewrap"><table class="sp-table">
+        <thead><tr><th>Role</th><th>Level</th><th class="num">Filings</th><th class="num">Median wage</th><th>States</th><th>Years</th></tr></thead>
+        <tbody>${groups.map((g) => `<tr>
+          <td class="sp-emp"><b>${esc(g.role)}</b>${(g.sample_titles && g.sample_titles.length) ? `<div class="sp-sub">${esc(g.sample_titles.slice(0, 2).join(" · "))}</div>` : ""}</td>
+          <td><span class="sp-lvl">${esc(g.level)}</span></td>
+          <td class="num">${g.filings}</td>
+          <td class="num">${money(g.median_wage)}${(g.min_wage && g.max_wage) ? `<div class="sp-sub">${money(g.min_wage)}–${money(g.max_wage)}</div>` : ""}</td>
+          <td>${esc((g.states || []).join(", "))}</td>
+          <td class="sp-yrs">${esc((g.years || []).join(", "))}</td>
+        </tr>`).join("")}</tbody>
+      </table></div>
+    </div></div>
+  </div>`;
+  const b = $("#sp-back"); if (b) b.onclick = () => { spOpen = null; renderSponsors(); };
+  window.scrollTo(0, 0);
 }
 function renderSponsors() {
   const el = $("#sponsors-view"); if (!el) return;
@@ -1702,17 +1773,19 @@ function renderSponsors() {
     if (!SPON_LOADED) loadSponsors();
     return;
   }
+  if (spOpen && SPON_CO.some((x) => x.employer === spOpen)) return openSpon(spOpen);
+  spOpen = null;
   const s = SPON_SUMMARY || {}, lv = s.count_by_level || {};
   const roles = spDistinct("role"), states = spDistinct("states");
   el.innerHTML = `
   <div class="page-head"><div><h1>H-1B Sponsors <span class="lp-muted">— entry-level infrastructure roles</span></h1>
-    <p class="sub">Employers that <b>certified ≥2 H-1B filings</b> for a role family at wage level I/II (entry/junior), from official <b>DOL LCA data</b> (FY2024–FY2026). H-1B-dependent employers and staffing agencies removed. An LCA is not a guarantee any posting sponsors — use for targeting + wage benchmarking. "Consistent" = filed in 2+ fiscal years.</p></div></div>
+    <p class="sub">Companies that <b>certified ≥2 H-1B filings</b> for entry/junior (level I/II) infra roles, from official <b>DOL LCA data</b> (FY2024–FY2026). H-1B-dependent employers and staffing agencies removed. An LCA is not a guarantee any posting sponsors — use for targeting + wage benchmarking. <b>Click a company</b> for its full role / wage / location breakdown.</p></div></div>
   <div class="grid widgets sp-stats">
-    <div class="stat"><b>${(s.total_employers || 0).toLocaleString("en-US")}</b><span>Employers</span></div>
+    <div class="stat"><b>${SPON_CO.length.toLocaleString("en-US")}</b><span>Companies</span></div>
     <div class="stat"><b>${(s.total_groups || SPONSORS.length).toLocaleString("en-US")}</b><span>Role/level groups</span></div>
     <div class="stat"><b>${(lv.I || 0).toLocaleString("en-US")}</b><span>Level I (entry)</span></div>
     <div class="stat"><b>${(lv.II || 0).toLocaleString("en-US")}</b><span>Level II (junior)</span></div>
-    <div class="stat"><b>${(s.count_with_tx_worksite || 0).toLocaleString("en-US")}</b><span>With a TX worksite</span></div>
+    <div class="stat"><b>${(s.count_with_tx_worksite || 0).toLocaleString("en-US")}</b><span>Groups w/ TX worksite</span></div>
   </div>
   <div class="container"><div class="container-body">
     <div class="sp-tools">
@@ -1720,20 +1793,17 @@ function renderSponsors() {
       <select id="sp-role" class="side-input"><option value="">Any role</option>${roles.map((r) => `<option value="${esc(r)}">${esc(r)}</option>`).join("")}</select>
       <select id="sp-state" class="side-input"><option value="">Any state</option>${states.map((r) => `<option value="${esc(r)}">${esc(r)}</option>`).join("")}</select>
       <input id="sp-q" type="search" class="side-input grow" placeholder="Search employer…" autocomplete="off" />
-      <select id="sp-sort" class="side-input"><option value="filings">Sort: filings</option><option value="wage">Sort: median wage</option><option value="company">Sort: company A–Z</option></select>
+      <select id="sp-sort" class="side-input"><option value="filings">Sort: filings</option><option value="roles">Sort: # roles</option><option value="company">Sort: company A–Z</option></select>
       <span id="sp-count" class="lp-muted"></span>
     </div>
-    <div class="tablewrap"><table class="sp-table">
-      <thead><tr><th>Employer</th><th>Role</th><th>Level</th><th class="num">Filings</th><th class="num">Median wage</th><th>Years</th><th>States</th><th></th></tr></thead>
-      <tbody id="sp-body"></tbody>
-    </table></div>
+    <div class="grid projects-grid sp-grid" id="sp-grid"></div>
   </div></div>`;
-  const bind = (id, k, ev) => { const e = $(id); if (e) e[ev] = () => { spF[k] = e.value; renderSponsorRows(); }; };
+  const bind = (id, k, ev) => { const e = $(id); if (e) e[ev] = () => { spF[k] = e.value; renderSponsorGrid(); }; };
   bind("#sp-level", "level", "onchange"); bind("#sp-role", "role", "onchange"); bind("#sp-state", "state", "onchange");
   bind("#sp-sort", "sort", "onchange"); bind("#sp-q", "q", "oninput");
-  ["#sp-level", "#sp-role", "#sp-state", "#sp-sort", "#sp-q"].forEach((id) => { const e = $(id); if (e) e.value = spF[id.slice(4)] ?? (id === "#sp-level" ? "both" : ""); });
-  $("#sp-level").value = spF.level; $("#sp-sort").value = spF.sort; $("#sp-q").value = spF.q;
-  renderSponsorRows();
+  $("#sp-level").value = spF.level; $("#sp-role").value = spF.role; $("#sp-state").value = spF.state;
+  $("#sp-sort").value = spF.sort; $("#sp-q").value = spF.q;
+  renderSponsorGrid();
 }
 
 // ---------- Ask AI (natural-language over your applications) ----------------
