@@ -1,0 +1,20 @@
+{
+ "total_employers": 1183,
+ "total_groups": 1485,
+ "count_by_level": {
+  "II": 1214,
+  "I": 271
+ },
+ "count_by_role": {
+  "DevOps Engineer": 409,
+  "Systems Engineer": 335,
+  "Infrastructure Engineer": 102,
+  "Network Engineer": 111,
+  "Cloud Engineer": 239,
+  "Platform Engineer": 107,
+  "SRE": 101,
+  "Build / Release": 81
+ },
+ "count_with_tx_worksite": 522,
+ "generated_at": "2026-08-05T01:55:44Z"
+}

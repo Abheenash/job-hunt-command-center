@@ -70,6 +70,7 @@
           <button class="chip view" data-v="todo">Follow-ups<span id="todo-count">0</span></button>
           <button class="chip view" data-v="inbox">Inbox<span id="inbox-count">0</span></button>
           <button class="chip view" data-v="openings">Openings<span id="openings-count">0</span></button>
+          <button class="chip view" data-v="sponsors">H-1B Sponsors<span id="sponsors-count">0</span></button>
         </nav>
         <div class="side-sub">Status</div>
         <nav id="filters"></nav>
@@ -135,6 +136,9 @@
 
         <!-- OPENINGS RADAR VIEW (scanned + ranked, rendered by JS) -->
         <div id="openings-view" hidden></div>
+
+        <!-- H-1B SPONSORS VIEW (DOL LCA data, rendered by JS) -->
+        <div id="sponsors-view" hidden></div>
 
         <!-- EDIT VIEW (inline, page-style) -->
         <div id="edit-view" hidden>

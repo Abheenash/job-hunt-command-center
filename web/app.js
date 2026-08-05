@@ -199,7 +199,7 @@ function renderActivity() {
 }
 
 // ---------- detail view (portfolio-style) ----------------------------------
-function showOnly(sel) { ["#list-view", "#detail-view", "#edit-view", "#todo-view", "#inbox-view", "#openings-view"].forEach((s) => ($(s).hidden = s !== sel)); }
+function showOnly(sel) { ["#list-view", "#detail-view", "#edit-view", "#todo-view", "#inbox-view", "#openings-view", "#sponsors-view"].forEach((s) => ($(s).hidden = s !== sel)); }
 function openDetail(id) { const a = APPS.find((x) => x.appId === id); if (!a) return; currentDetail = id; renderDetail(a); showOnly("#detail-view"); window.scrollTo(0, 0); }
 function closeDetail() { currentDetail = null; showOnly(currentView === "todo" ? "#todo-view" : "#list-view"); }
 
@@ -210,6 +210,7 @@ function setView(v) {
   if (v === "todo") { renderTodo(); showOnly("#todo-view"); }
   else if (v === "inbox") { renderInbox(); showOnly("#inbox-view"); }
   else if (v === "openings") { renderOpenings(); showOnly("#openings-view"); }
+  else if (v === "sponsors") { renderSponsors(); showOnly("#sponsors-view"); loadSponsors(); }
   else { showOnly("#list-view"); }
 }
 
@@ -1434,13 +1435,15 @@ function lpCoLinks(arr, checked) {
 }
 function renderLaunchpad(el) {
   const checks = lpChecks(); lpSaveChecks(checks);          // persist the weekly reset
+  const spTX = SPONSORS.length ? sponsorCoItems(sponsorCompanies(24, true)) : [];
+  const spTop = SPONSORS.length ? sponsorCoItems(sponsorCompanies(30, false)) : [];
   const coKeys = [...LP_PLATFORMS.map((p) => "plat:" + p.name), ...LP_AGGREGATORS.map((x) => x.u),
-    ...LP_UH.map((x) => x.u), ...LP_COMPANIES().map((x) => x.u)];
+    ...LP_UH.map((x) => x.u), ...spTX.map((x) => x.u), ...spTop.map((x) => x.u), ...LP_COMPANIES().map((x) => x.u)];
   const coTotal = coKeys.length;
   const coDone = () => coKeys.filter((k) => lpChecks().checked[k]).length;
   el.innerHTML = `<div class="page-head"><div>
       <h1>Job-Search Launchpad</h1>
-      <p class="sub">Curated deep-links into every job platform — pre-filtered for <b>your</b> profile (entry/associate cloud · DevOps · SRE, Texas + remote, recent postings) — plus sponsor-first boards, your UH alumni channel, and a categorized list of target companies to apply to direct. Open a link, it lands you on a live search. No scraping; always fresh.</p>
+      <p class="sub">Curated deep-links into every job platform — pre-filtered for <b>your</b> profile (entry/associate cloud · DevOps · SRE, Texas + remote, recent postings) — now led by <b>proven H-1B sponsors pulled from DOL LCA data</b>, plus sponsor-first boards, your UH alumni channel, and hand-picked target companies. Open a link, it lands you on a live search. No scraping; always fresh.</p>
     </div></div>
     <div class="container"><div class="container-body lp-wrap">
 
@@ -1485,9 +1488,20 @@ function renderLaunchpad(el) {
         <div class="lp-links wide">${lpLinks(LP_SPONSOR_TOOLS)}</div>
       </section>
 
+      <section class="lp-sec lp-dol">
+        <div class="lp-co-head">
+          <h3>Proven H-1B sponsors for your roles <span class="lp-muted">— from DOL LCA data${SPON_SUMMARY ? ` (${(SPON_SUMMARY.total_employers || 0).toLocaleString("en-US")} employers)` : ""}</span></h3>
+        </div>
+        <p class="lp-hint">Employers that actually <b>certified entry-level (level I/II) H-1B filings</b> in your infra lane over FY2024–FY2026 — H-1B-dependent employers and staffing agencies removed. Each link runs a LinkedIn <b>entry/associate</b> search at that company. Full detail, wages and filters are in the <b>H-1B Sponsors</b> tab. Tick each once you've swept it today.</p>
+        <h4 class="lp-sub">Texas sponsors <span class="lp-muted">(home-field — apply here first)</span></h4>
+        <div class="lp-links grid3">${spTX.length ? lpCoLinks(spTX, checks.checked) : `<p class="lp-hint">Loading sponsor data…</p>`}</div>
+        <h4 class="lp-sub">Top sponsors nationwide <span class="lp-muted">(by certified filing volume)</span></h4>
+        <div class="lp-links grid3">${spTop.length ? lpCoLinks(spTop, checks.checked) : ""}</div>
+      </section>
+
       <section class="lp-sec">
         <div class="lp-co-head">
-          <h3>Target companies <span class="lp-muted">— apply direct from their career pages</span></h3>
+          <h3>Target companies <span class="lp-muted">— hand-picked, apply direct from their career pages</span></h3>
           <div class="lp-co-tools"><span id="lp-co-progress" class="lp-co-prog">${coDone()} / ${coTotal} swept today</span><button class="btn sm" id="lp-co-reset">Reset today</button></div>
         </div>
         <p class="lp-hint">Every platform, board, and company here has a checkbox — tick each once you've swept / applied to it, and they <b>reset every day</b> so each morning is a fresh pass (saved in this browser). The counter above tracks the whole page. <b>Verify the sponsorship clause on the specific req.</b> = Texas / no relocation.</p>
@@ -1587,6 +1601,141 @@ async function rescanOpenings() {
   renderOpenings();
 }
 
+// ---------- H-1B Sponsors (DOL LCA certified-filing data) -------------------
+// Data bundled at web/data/sponsors.json (built by h1b-sponsor-intel pipeline):
+// one row per employer + role-family + wage-level group with >=2 certified filings.
+let SPONSORS = [];
+let SPON_SUMMARY = null;
+let SPON_LOADED = false;
+let spF = { level: "both", role: "", state: "", q: "", sort: "filings" };
+const SPON_KW = '(DevOps OR SRE OR "site reliability" OR cloud OR platform OR infrastructure OR systems)';
+
+async function loadSponsors() {
+  if (SPON_LOADED) return;
+  SPON_LOADED = true;
+  try {
+    const [s, sum] = await Promise.all([
+      fetch("data/sponsors.json").then((r) => (r.ok ? r.json() : [])),
+      fetch("data/summary.json").then((r) => (r.ok ? r.json() : null)),
+    ]);
+    SPONSORS = Array.isArray(s) ? s : [];
+    SPON_SUMMARY = sum;
+  } catch (_e) { SPONSORS = []; }
+  const c = $("#sponsors-count");
+  if (c) c.textContent = SPON_SUMMARY ? String(SPON_SUMMARY.total_employers) : (SPONSORS.length ? String(SPONSORS.length) : "");
+  if (currentView === "sponsors") renderSponsors();
+  // the Openings launchpad's "proven sponsors" section is fed by this same data
+  if (currentView === "openings" && $("#openings-view") && !$("#openings-view").hidden) renderOpenings();
+}
+
+function spLinkedIn(company) {
+  return `https://www.linkedin.com/jobs/search/?keywords=${encodeURIComponent(company + " " + SPON_KW)}&f_E=1%2C2&location=United%20States`;
+}
+function spDistinct(key) {
+  const s = new Set();
+  SPONSORS.forEach((g) => { const v = g[key]; if (Array.isArray(v)) v.forEach((x) => s.add(x)); else if (v) s.add(v); });
+  return [...s].sort();
+}
+// aggregate groups -> one entry per employer (for the Openings launchpad)
+function sponsorCompanies(limit, txOnly) {
+  const by = {};
+  SPONSORS.forEach((g) => {
+    const e = by[g.employer] || (by[g.employer] = { employer: g.employer, filings: 0, roles: new Set(), states: new Set() });
+    e.filings += g.filings; if (g.role) e.roles.add(g.role); (g.states || []).forEach((s) => e.states.add(s));
+  });
+  let arr = Object.values(by);
+  if (txOnly) arr = arr.filter((e) => e.states.has("TX"));
+  arr.sort((a, b) => b.filings - a.filings);
+  return arr.slice(0, limit);
+}
+function sponsorCoItems(list) {
+  return list.map((e) => ({
+    l: `${e.employer} — ${e.filings} certified · ${[...e.roles].slice(0, 3).join(", ")}`,
+    u: spLinkedIn(e.employer),
+  }));
+}
+
+function spFiltered() {
+  const q = spF.q.trim().toLowerCase();
+  const rows = SPONSORS.filter((g) => {
+    if (spF.level !== "both" && g.level !== spF.level) return false;
+    if (spF.role && g.role !== spF.role) return false;
+    if (spF.state && !(g.states || []).includes(spF.state)) return false;
+    if (q && !g.employer.toLowerCase().includes(q)) return false;
+    return true;
+  });
+  const cmp = {
+    filings: (a, b) => b.filings - a.filings,
+    wage: (a, b) => (b.median_wage || 0) - (a.median_wage || 0),
+    company: (a, b) => (a.employer.toLowerCase() < b.employer.toLowerCase() ? -1 : 1),
+  }[spF.sort] || ((a, b) => b.filings - a.filings);
+  return rows.slice().sort(cmp);
+}
+function spRow(g) {
+  const consistent = (g.years || []).length >= 2 ? `<span class="tag ok" title="Certified in ${g.years.length} fiscal years">consistent</span>` : "";
+  const range = (g.min_wage && g.max_wage) ? `<span class="sp-sub">$${Math.round(g.min_wage / 1000)}k–$${Math.round(g.max_wage / 1000)}k</span>` : "";
+  const emp = esc(g.employer), role = esc(g.role);
+  return `<tr>
+    <td class="sp-emp"><b>${emp}</b><div class="sp-sub">${esc((g.cities || []).slice(0, 3).join(", "))}</div></td>
+    <td>${role}</td>
+    <td><span class="sp-lvl">${esc(g.level)}</span></td>
+    <td class="num">${g.filings}</td>
+    <td class="num">$${Number(g.median_wage).toLocaleString("en-US")}${range}</td>
+    <td class="sp-yrs">${esc((g.years || []).join(", "))} ${consistent}</td>
+    <td>${esc((g.states || []).join(", "))}</td>
+    <td class="sp-act">
+      <a class="btn sm" href="${spLinkedIn(g.employer)}" target="_blank" rel="noopener">Openings</a>
+      <button class="btn sm primary sp-log" data-c="${esc(g.employer)}" data-t="${role}">+ Log</button>
+    </td></tr>`;
+}
+function renderSponsorRows() {
+  const body = $("#sp-body"); if (!body) return;
+  const rows = spFiltered();
+  body.innerHTML = rows.length ? rows.map(spRow).join("") : `<tr><td colspan="8" class="empty">No sponsors match these filters.</td></tr>`;
+  const n = $("#sp-count"); if (n) n.textContent = `${rows.length.toLocaleString("en-US")} groups`;
+  $$("#sponsors-view .sp-log").forEach((b) => (b.onclick = () => openEdit(null, { company: b.dataset.c, title: b.dataset.t, sponsors: true })));
+}
+function renderSponsors() {
+  const el = $("#sponsors-view"); if (!el) return;
+  if (!SPON_LOADED || !SPONSORS.length) {
+    el.innerHTML = `<div class="page-head"><div><h1>H-1B Sponsors</h1></div></div><p class="empty">${SPON_LOADED ? "Sponsor data unavailable." : "Loading sponsor data…"}</p>`;
+    if (!SPON_LOADED) loadSponsors();
+    return;
+  }
+  const s = SPON_SUMMARY || {}, lv = s.count_by_level || {};
+  const roles = spDistinct("role"), states = spDistinct("states");
+  el.innerHTML = `
+  <div class="page-head"><div><h1>H-1B Sponsors <span class="lp-muted">— entry-level infrastructure roles</span></h1>
+    <p class="sub">Employers that <b>certified ≥2 H-1B filings</b> for a role family at wage level I/II (entry/junior), from official <b>DOL LCA data</b> (FY2024–FY2026). H-1B-dependent employers and staffing agencies removed. An LCA is not a guarantee any posting sponsors — use for targeting + wage benchmarking. "Consistent" = filed in 2+ fiscal years.</p></div></div>
+  <div class="grid widgets sp-stats">
+    <div class="stat"><b>${(s.total_employers || 0).toLocaleString("en-US")}</b><span>Employers</span></div>
+    <div class="stat"><b>${(s.total_groups || SPONSORS.length).toLocaleString("en-US")}</b><span>Role/level groups</span></div>
+    <div class="stat"><b>${(lv.I || 0).toLocaleString("en-US")}</b><span>Level I (entry)</span></div>
+    <div class="stat"><b>${(lv.II || 0).toLocaleString("en-US")}</b><span>Level II (junior)</span></div>
+    <div class="stat"><b>${(s.count_with_tx_worksite || 0).toLocaleString("en-US")}</b><span>With a TX worksite</span></div>
+  </div>
+  <div class="container"><div class="container-body">
+    <div class="sp-tools">
+      <select id="sp-level" class="side-input"><option value="both">Level I &amp; II</option><option value="I">Level I</option><option value="II">Level II</option></select>
+      <select id="sp-role" class="side-input"><option value="">Any role</option>${roles.map((r) => `<option value="${esc(r)}">${esc(r)}</option>`).join("")}</select>
+      <select id="sp-state" class="side-input"><option value="">Any state</option>${states.map((r) => `<option value="${esc(r)}">${esc(r)}</option>`).join("")}</select>
+      <input id="sp-q" type="search" class="side-input grow" placeholder="Search employer…" autocomplete="off" />
+      <select id="sp-sort" class="side-input"><option value="filings">Sort: filings</option><option value="wage">Sort: median wage</option><option value="company">Sort: company A–Z</option></select>
+      <span id="sp-count" class="lp-muted"></span>
+    </div>
+    <div class="tablewrap"><table class="sp-table">
+      <thead><tr><th>Employer</th><th>Role</th><th>Level</th><th class="num">Filings</th><th class="num">Median wage</th><th>Years</th><th>States</th><th></th></tr></thead>
+      <tbody id="sp-body"></tbody>
+    </table></div>
+  </div></div>`;
+  const bind = (id, k, ev) => { const e = $(id); if (e) e[ev] = () => { spF[k] = e.value; renderSponsorRows(); }; };
+  bind("#sp-level", "level", "onchange"); bind("#sp-role", "role", "onchange"); bind("#sp-state", "state", "onchange");
+  bind("#sp-sort", "sort", "onchange"); bind("#sp-q", "q", "oninput");
+  ["#sp-level", "#sp-role", "#sp-state", "#sp-sort", "#sp-q"].forEach((id) => { const e = $(id); if (e) e.value = spF[id.slice(4)] ?? (id === "#sp-level" ? "both" : ""); });
+  $("#sp-level").value = spF.level; $("#sp-sort").value = spF.sort; $("#sp-q").value = spF.q;
+  renderSponsorRows();
+}
+
 // ---------- Ask AI (natural-language over your applications) ----------------
 function aiBubble(role, html) {
   const d = document.createElement("div");
@@ -1619,6 +1768,7 @@ function show(authed) {
     load().catch((e) => console.error(e));
     loadNotifications();
     loadOpenings();
+    loadSponsors();
   }
 }
 
