@@ -26,6 +26,7 @@ textarea { resize: vertical; }
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: .45rem; padding: .5rem 1rem; border-radius: 8px;
   font: inherit; font-weight: 700; font-size: .85rem; border: 1px solid var(--link); color: var(--link); background: #fff; cursor: pointer; }
 .btn:hover { background: #f2f8fd; border-color: var(--link-hover); color: var(--link-hover); text-decoration: none; }
+a.btn { text-decoration: none; }
 .btn.primary { background: var(--orange-2); border-color: var(--orange-2); color: #fff; }
 .btn.primary:hover { background: #d9600d; border-color: #d9600d; color: #fff; }
 .btn.danger { border-color: var(--danger); color: var(--danger); }
@@ -132,8 +133,6 @@ main { flex: 1; min-width: 0; padding: 1.1rem 1.5rem 2rem; max-width: 1180px; }
 /* status pills */
 .pill { font-size: .68rem; font-weight: 700; border-radius: 20px; padding: .12rem .55rem; text-transform: capitalize; }
 .pill.pending { background: #ede9fe; color: #5b21b6; }
-.card-link { color: var(--link, #006ce0); font-weight: 600; text-decoration: none; }
-.card-link:hover { text-decoration: underline; }
 .pill.applied { background: #eef0f2; color: #5f6b7a; }
 .pill.screen { background: #fff2d9; color: #8a5a00; }
 .pill.interview { background: #e6f0ff; color: #0056d6; }
@@ -202,7 +201,10 @@ main { flex: 1; min-width: 0; padding: 1.1rem 1.5rem 2rem; max-width: 1180px; }
 .tag.pr.low { background: #eef0f2; color: var(--muted); }
 
 /* notification bell + dropdown */
-.gnav-chip.bell { position: relative; }
+.gnav-chip.bell { position: relative; padding: .35rem; }
+.gnav-chip.bell .i { width: 19px; height: 19px; color: #eaeded; }
+.gnav-chip.bell:hover .i { color: var(--orange); }
+.pop-wrap:has(.notif-pop:not([hidden])) .bell .i { color: var(--orange); }
 .nbadge { position: absolute; top: -2px; right: -2px; background: var(--danger); color: #fff; font-size: .6rem; font-weight: 700; min-width: 15px; height: 15px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; padding: 0 3px; }
 .notif-pop { width: min(360px, 92vw); max-width: calc(100vw - 16px); padding: 0; overflow: hidden; }
 .notif-head { display: flex; align-items: center; justify-content: space-between; padding: .7rem .9rem; border-bottom: 1px solid var(--border-soft); }

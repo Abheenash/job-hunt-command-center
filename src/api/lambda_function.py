@@ -57,10 +57,13 @@ MATCH_SYSTEM = (
     "seniority' (years/level/scope fit), 'Domain relevance' (role/industry fit), 'ATS keywords' "
     "(share of the JD's key hard terms present in the résumé). List the JD's important hard "
     "keywords present vs absent (dedupe; normalize case). "
-    "Reply with ONLY a compact JSON object, no prose, no code fences: "
-    '{"scoreBreakdown":[{"dimension":str,"score":int,"note":str}],'
-    '"matched":[up to 8 requirements the résumé clearly satisfies],'
-    '"atsCovered":[str],"atsMissing":[str],'
+    "Reply with ONLY a compact JSON object, no prose, no code fences. Keep it SHORT — "
+    "every list below is capped, and a reply that runs long gets truncated and thrown away: "
+    '{"scoreBreakdown":[{"dimension":str,"score":int,"note":str (max 120 chars, do NOT '
+    'list keywords here — that is what atsCovered/atsMissing are for)}],'
+    '"matched":[up to 8 requirements the résumé clearly satisfies, max 90 chars each],'
+    '"atsCovered":[the 15 most important JD keywords present in the résumé],'
+    '"atsMissing":[the 15 most important JD keywords absent from it],'
     '"summary":"1-2 sentence honest assessment and the single biggest gap"}'
 )
 
@@ -361,9 +364,68 @@ def parse_jd(body):
 
 
 def _first_json(text):
+    """Slice the first JSON object out of a model reply.
+
+    Bedrock stops mid-object when a reply hits max_tokens. The plain
+    first-{ .. last-} slice then returns a fragment whose brackets don't balance,
+    and json.loads reports a misleading "Expecting ',' delimiter" pointing at a
+    line in the middle of the reply rather than at the truncation. Repair the cut
+    instead, so a slightly-too-long answer degrades to a shorter one rather than
+    failing the whole request.
+    """
     start = text.find("{")
+    if start == -1:
+        return "{}"
     end = text.rfind("}")
-    return text[start:end + 1] if start != -1 and end != -1 else "{}"
+    if end > start:
+        frag = text[start:end + 1]
+        try:
+            json.loads(frag)
+            return frag
+        except ValueError:
+            pass
+    return _repair_json(text[start:])
+
+
+def _repair_json(s):
+    """Close a JSON object that was cut off mid-write; "{}" if nothing survives.
+
+    Walks the text tracking string/escape state and the open-bracket stack,
+    remembering every point where a value finished. Then, from the last such
+    point backwards, tries closing the still-open brackets until one parses —
+    which drops the partial trailing element and keeps everything before it.
+    """
+    stops, stack, in_str, esc = [], [], False, False
+    for i, ch in enumerate(s):
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+                stops.append((i, tuple(stack)))
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch in "{[":
+            stack.append("}" if ch == "{" else "]")
+        elif ch in "}]":
+            if stack:
+                stack.pop()
+            if not stack:
+                return s[:i + 1]
+            stops.append((i, tuple(stack)))
+        elif ch.isdigit() or ch in "eE+-.":
+            stops.append((i, tuple(stack)))
+    for i, open_at in reversed(stops[-400:]):
+        cand = s[:i + 1] + "".join(reversed(open_at))
+        try:
+            json.loads(cand)
+            return cand
+        except ValueError:
+            continue
+    return "{}"
 
 
 def _user_apps(user):
@@ -590,18 +652,24 @@ def match_resume(user, app_id):
         return _r(422, {"error": "couldn't read text from that PDF (is it a scan/image?)"})
 
     payload = {
-        # 1500 (was 700): the weighted-rubric schema (5 scored dimensions + notes +
-        # matched + ATS lists + summary) overran 700 and truncated the JSON.
+        # 3000 (was 1500, was 700): the weighted-rubric schema (5 scored dimensions +
+        # notes + matched + ATS lists + summary) kept overrunning the cap — a long JD
+        # made Haiku emit 30+ ATS keywords one per line and stop mid-array at exactly
+        # max_tokens, so the reply was unparseable every time. MATCH_SYSTEM now caps
+        # each list, this leaves headroom, and _first_json repairs a cut-off reply.
         # temperature 0.2 (was unset → default ~1.0): high temp made Haiku emit
         # malformed JSON (unescaped quotes in notes) non-deterministically.
-        "anthropic_version": "bedrock-2023-05-31", "max_tokens": 1500, "temperature": 0.2,
+        "anthropic_version": "bedrock-2023-05-31", "max_tokens": 3000, "temperature": 0.2,
         "system": MATCH_SYSTEM,
         "messages": [{"role": "user", "content": [{"type": "text",
             "text": f"JOB DESCRIPTION:\n{jd[:8000]}\n\nRESUME:\n{text[:8000]}"}]}],
     }
     try:
         resp = bedrock.invoke_model(modelId=BEDROCK_MODEL, body=json.dumps(payload))
-        out = json.loads(resp["body"].read())["content"][0]["text"]
+        body = json.loads(resp["body"].read())
+        if body.get("stop_reason") == "max_tokens":  # the failure mode above; log it loudly
+            print(f"match: hit max_tokens ({body.get('usage', {}).get('output_tokens')}) — repairing")
+        out = body["content"][0]["text"]
         result = json.loads(_first_json(out))
     except Exception as e:  # noqa: BLE001
         print(f"match failed: {type(e).__name__}: {e}")

@@ -57,7 +57,7 @@ jobs:
           ignore-unfixed: true
 
   test:
-    name: Unit tests (classifier)
+    name: Unit tests (all Lambdas)
     runs-on: ubuntu-latest
     env:
       AWS_DEFAULT_REGION: us-east-1 # boto3 clients are built at module import (no API calls)
@@ -65,19 +65,24 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
-      - run: pip install pytest boto3 # boto3: scanner/enrich test modules import it at load
-      - name: Classifier tests
-        working-directory: src/classify
-        run: python -m pytest -q
-      - name: Résumé renderer tests
-        working-directory: src/resume_gen
-        run: python -m pytest -q
-      - name: Scanner tests
-        working-directory: src/scanner
-        run: python -m pytest -q
-      - name: Enrich tests
-        working-directory: src/enrich
-        run: python -m pytest -q
+      - run: pip install pytest boto3 # boto3: several modules build clients at import (no API calls)
+      - name: Every Lambda's tests (each src/<fn>/ with a test_*.py)
+        env:
+          APPS_TABLE: t
+          EVENTS_TABLE: e
+          DOCS_BUCKET: b
+        run: |
+          set -e
+          total=0
+          for d in src/*/; do
+            if ls "$d"/test_*.py >/dev/null 2>&1; then
+              echo "== $d"
+              (cd "$d" && python -m pytest -q)
+              total=$((total+1))
+            fi
+          done
+          echo "ran test suites for $total functions"
+          test "$total" -ge 12
 
   validate:
     name: Terraform validate

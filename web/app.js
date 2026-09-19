@@ -182,7 +182,7 @@ function card(a) {
   return `<article class="card" data-id="${a.appId}">
     <div class="card-h"><span class="card-ico">${ini(a)}</span><b>${esc(a.company || "—")}</b><span class="pill ${a.status}">${a.status}</span></div>
     <div class="role">${esc(a.title || "")}</div>
-    <div class="meta">${esc(a.dateApplied || "")}${a.location ? " · " + esc(a.location) : ""}${a.workMode ? " · " + esc(a.workMode) : ""}${a.url ? ` · <a class="card-link" href="${esc(a.url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">posting</a>` : ""}</div>
+    <div class="meta">${esc(a.dateApplied || "")}${a.location ? " · " + esc(a.location) : ""}${a.workMode ? " · " + esc(a.workMode) : ""}</div>
     <div class="tags">${pr}${mt}${st}${spons}${ref}${tags}</div>${due}${roDue}</article>`;
 }
 
@@ -314,6 +314,7 @@ function renderDetail(a) {
       <div><div class="lede">${esc(a.title || "")}</div><h1>${esc(a.company || "—")}</h1>
         <span class="pill ${a.status}">${esc(a.status)}</span>${a.state ? ` <span class="tag st">${esc(a.state)}</span>` : ""}${a.sponsorVerdict ? " " + sponBadge(a) : (a.sponsors ? ` <span class="tag sp">sponsors OPT</span>` : "")}</div>
       <div class="detail-actions">
+        ${a.url ? `<a class="btn" id="d-open" href="${esc(a.url)}" target="_blank" rel="noopener">Open posting</a>` : ""}
         <button class="btn" id="d-edit">Edit</button>
         <button class="btn danger" id="d-del">Delete</button>
       </div>
@@ -357,7 +358,6 @@ function renderDetail(a) {
           ${kvRow("Seniority", a.seniority)}
           ${kvRow("Salary", a.salary)}
           ${kvRow("Source", a.source)}
-          ${a.url ? `<div><span>Posting</span><b><a href="${esc(a.url)}" target="_blank" rel="noopener">Open posting</a></b></div>` : ""}
           ${kvRow("Sponsors OPT", a.sponsors ? "yes" : "")}
           ${kvRow("Next action", a.nextAction)}
           ${kvRow("Due", a.nextDue)}
