@@ -1,5 +1,7 @@
 # Job Hunt Command Center — a serverless platform that generates JD-tailored résumés, tracks applications, and reads your inbox for you
 
+> **Sep 2026:** repair of Bedrock replies truncated at `max_tokens` (keeps completed values, invents nothing) with 8 tests; CI runs all 12 Lambdas' suites (114 tests).
+
 Paste a job description and get a **tailored 2-page résumé** (LaTeX + PDF, written by Amazon Bedrock, scored against a match rubric and ATS keywords); log every application with the exact résumé you sent; and let an **event-driven pipeline** scan your inbox to classify recruiter replies, rejections, and interviews and auto-advance the right application — so the whole search lives in one place instead of your head and a messy inbox.
 
 > **Personal-use tool.** The *code and infrastructure* are public (it's a portfolio project); the *data* — applications, documents, email classifications — is private, single-user, and gated behind Cognito. Nothing personal lives in this repo.
