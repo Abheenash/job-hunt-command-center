@@ -48,7 +48,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Trivy filesystem scan
-        uses: aquasecurity/trivy-action@0.36.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
           scan-ref: .
@@ -165,6 +165,10 @@ jobs:
   dependency-review:
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
+    # Requires "Dependency graph" enabled in repo settings, which a workflow
+    # cannot turn on for itself. Non-blocking so a repo without it reports the
+    # gap instead of failing every PR.
+    continue-on-error: true
     permissions:
       contents: read
       pull-requests: write
