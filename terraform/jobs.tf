@@ -67,7 +67,7 @@ resource "aws_iam_role_policy" "nudge" {
 resource "aws_lambda_function" "nudge" {
   function_name    = "${local.name}-nudge"
   role             = aws_iam_role.nudge.arn
-  runtime          = "python3.12"
+  runtime          = "python3.13"
   handler          = "lambda_function.handler"
   filename         = data.archive_file.nudge.output_path
   source_code_hash = data.archive_file.nudge.output_base64sha256
@@ -145,7 +145,7 @@ resource "aws_iam_role_policy" "digest" {
 resource "aws_lambda_function" "digest" {
   function_name    = "${local.name}-digest"
   role             = aws_iam_role.digest.arn
-  runtime          = "python3.12"
+  runtime          = "python3.13"
   handler          = "lambda_function.handler"
   filename         = data.archive_file.digest.output_path
   source_code_hash = data.archive_file.digest.output_base64sha256

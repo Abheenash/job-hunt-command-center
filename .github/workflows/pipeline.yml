@@ -14,7 +14,7 @@ jobs:
     name: Secret scan (gitleaks)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { fetch-depth: 0 }
       - uses: gitleaks/gitleaks-action@v2
         env:
@@ -25,9 +25,9 @@ jobs:
     name: IaC scan (Checkov + tfsec)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Checkov (hard gate, documented baseline)
-        uses: bridgecrewio/checkov-action@master
+        uses: bridgecrewio/checkov-action@v12
         with:
           directory: terraform/
           quiet: true
@@ -46,9 +46,9 @@ jobs:
     name: Vulnerability scan (Trivy)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Trivy filesystem scan
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@0.36.0
         with:
           scan-type: fs
           scan-ref: .
@@ -62,9 +62,9 @@ jobs:
     env:
       AWS_DEFAULT_REGION: us-east-1 # boto3 clients are built at module import (no API calls)
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v5
-        with: { python-version: "3.12" }
+        with: { python-version: "3.13" }
       - run: pip install pytest boto3 # boto3: several modules build clients at import (no API calls)
       - name: Every Lambda's tests (each src/<fn>/ with a test_*.py)
         env:
@@ -88,7 +88,7 @@ jobs:
     name: Terraform validate
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: hashicorp/setup-terraform@v3
       - name: fmt + validate
         working-directory: terraform

@@ -89,7 +89,7 @@ resource "aws_iam_role_policy" "openings_scan" {
 resource "aws_lambda_function" "openings_scan" {
   function_name    = "${local.name}-openings-scan"
   role             = aws_iam_role.openings_scan.arn
-  runtime          = "python3.12"
+  runtime          = "python3.13"
   handler          = "lambda_function.handler"
   filename         = data.archive_file.openings_scan.output_path
   source_code_hash = data.archive_file.openings_scan.output_base64sha256

@@ -25,7 +25,7 @@ resource "aws_lambda_layer_version" "tectonic" {
   layer_name          = "${local.name}-tectonic"
   filename            = data.archive_file.tectonic_layer.output_path
   source_code_hash    = data.archive_file.tectonic_layer.output_base64sha256
-  compatible_runtimes = ["python3.12"]
+  compatible_runtimes = ["python3.13"]
 }
 
 resource "aws_iam_role" "resume_gen" {
@@ -75,7 +75,7 @@ resource "aws_iam_role_policy" "resume_gen" {
 resource "aws_lambda_function" "resume_gen" {
   function_name    = "${local.name}-resume-gen"
   role             = aws_iam_role.resume_gen.arn
-  runtime          = "python3.12"
+  runtime          = "python3.13"
   handler          = "lambda_function.handler"
   filename         = data.archive_file.resume_gen.output_path
   source_code_hash = data.archive_file.resume_gen.output_base64sha256

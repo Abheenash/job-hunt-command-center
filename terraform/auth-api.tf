@@ -124,7 +124,7 @@ resource "aws_iam_role_policy" "api" {
 resource "aws_lambda_function" "api" {
   function_name    = "${local.name}-api"
   role             = aws_iam_role.api.arn
-  runtime          = "python3.12"
+  runtime          = "python3.13"
   handler          = "lambda_function.handler"
   filename         = data.archive_file.api.output_path
   source_code_hash = data.archive_file.api.output_base64sha256

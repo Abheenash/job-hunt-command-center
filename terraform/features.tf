@@ -85,7 +85,7 @@ resource "aws_lambda_function" "feature" {
   for_each         = local.features
   function_name    = "${local.name}-${each.key}"
   role             = aws_iam_role.feature[each.key].arn
-  runtime          = "python3.12"
+  runtime          = "python3.13"
   handler          = "lambda_function.handler"
   filename         = data.archive_file.feature[each.key].output_path
   source_code_hash = data.archive_file.feature[each.key].output_base64sha256

@@ -88,7 +88,7 @@ resource "aws_iam_role_policy" "scanner" {
 resource "aws_lambda_function" "scanner" {
   function_name    = "${local.name}-scanner"
   role             = aws_iam_role.scanner.arn
-  runtime          = "python3.12"
+  runtime          = "python3.13"
   handler          = "lambda_function.handler"
   filename         = data.archive_file.scanner.output_path
   source_code_hash = data.archive_file.scanner.output_base64sha256
@@ -168,7 +168,7 @@ resource "aws_iam_role_policy" "classify" {
 resource "aws_lambda_function" "classify" {
   function_name    = "${local.name}-classify"
   role             = aws_iam_role.classify.arn
-  runtime          = "python3.12"
+  runtime          = "python3.13"
   handler          = "lambda_function.handler"
   filename         = data.archive_file.classify.output_path
   source_code_hash = data.archive_file.classify.output_base64sha256
@@ -223,7 +223,7 @@ resource "aws_iam_role_policy" "enrich" {
 resource "aws_lambda_function" "enrich" {
   function_name    = "${local.name}-enrich"
   role             = aws_iam_role.enrich.arn
-  runtime          = "python3.12"
+  runtime          = "python3.13"
   handler          = "lambda_function.handler"
   filename         = data.archive_file.enrich.output_path
   source_code_hash = data.archive_file.enrich.output_base64sha256
@@ -383,7 +383,7 @@ resource "aws_iam_role_policy" "dispatcher" {
 resource "aws_lambda_function" "dispatcher" {
   function_name    = "${local.name}-dispatcher"
   role             = aws_iam_role.dispatcher.arn
-  runtime          = "python3.12"
+  runtime          = "python3.13"
   handler          = "lambda_function.handler"
   filename         = data.archive_file.dispatcher.output_path
   source_code_hash = data.archive_file.dispatcher.output_base64sha256
