@@ -139,8 +139,7 @@ NONUS_RE = re.compile(
     r"italy|greece|turkey|uae|dubai|saudi|egypt|nigeria|kenya|south africa|korea|seoul|"
     r"taiwan|vietnam|thailand|indonesia|malaysia|emea|apac|latam)\b", re.I)
 US_POS_RE = re.compile(r"\b(united states|u\.?s\.?a?\.?|americas|north america)\b", re.I)
-US_STATES = ("AL AK AZ AR CA CO CT DE FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT "
-             "NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY DC").split()
+US_STATES = ["AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY", "DC"]
 US_STATE_RE = re.compile(r",\s*(" + "|".join(US_STATES) + r")\b")  # "Austin, TX" (case-sensitive code)
 # Candidate is Houston, TX and will relocate anywhere in the US. Ranking priority is
 # Texas first, then remote-US, then the rest of the US. _geo_tier drives the ordering
@@ -219,11 +218,18 @@ ANGLE_MAP = [
 
 
 def _get(url, timeout=10, data=None, headers=None):
+    # Refuse anything that isn't plain HTTPS. urlopen also speaks file:, ftp: and
+    # data:, so a board URL that ever came from config or an API response could
+    # otherwise be pointed at the filesystem. The hosts here are all hardcoded
+    # today; this makes that a property of the function rather than of the
+    # current call sites.
+    if not url.lower().startswith("https://"):
+        raise ValueError(f"refusing non-https URL: {url[:60]}")
     h = dict(UA)
     if headers:
         h.update(headers)
-    req = urllib.request.Request(url, data=data, headers=h)
-    with urllib.request.urlopen(req, timeout=timeout) as r:
+    req = urllib.request.Request(url, data=data, headers=h)  # noqa: S310 — scheme checked above
+    with urllib.request.urlopen(req, timeout=timeout) as r:  # noqa: S310
         return r.read()
 
 
@@ -231,9 +237,7 @@ def _is_us(loc):
     """Keep unless the location clearly names a non-US country with no US signal."""
     if not loc:
         return True
-    if NONUS_RE.search(loc) and not US_POS_RE.search(loc):
-        return False
-    return True
+    return not (NONUS_RE.search(loc) and not US_POS_RE.search(loc))
 
 
 def _clean_html(s):
@@ -321,7 +325,7 @@ def from_workday(cfg):
             jd = _clean_html(info.get("jobDescription", ""))
             loc = info.get("location", loc)
             ext = info.get("externalUrl")
-        except Exception:  # noqa: BLE001
+        except Exception:
             ext = None
         if not _is_us(loc):
             continue
@@ -386,7 +390,11 @@ def from_adzuna():
                 "app_id": ADZUNA_APP_ID, "app_key": ADZUNA_APP_KEY, "results_per_page": 50,
                 "what": q, "max_days_old": 21, "content-type": "application/json"}))
             d = json.loads(_get(url, timeout=15))
-        except Exception:  # noqa: BLE001 — one query failing never sinks the source
+        # One board being down or rate-limiting must not fail the whole scan.
+        # Narrowed from bare Exception and logged, so a real bug in _get or a
+        # bad URL is visible in CloudWatch instead of silently skipping a board.
+        except (OSError, ValueError, TypeError) as e:
+            print(f"adzuna query failed, skipping: {type(e).__name__}: {e}")
             continue
         for j in d.get("results", []):
             title = _clean_html(j.get("title", ""))
@@ -407,35 +415,35 @@ def collect():
     for tok in GREENHOUSE:
         try:
             raw += from_greenhouse(tok)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             errors.append(f"gh:{tok}:{type(e).__name__}")
     for org in ASHBY:
         try:
             raw += from_ashby(org)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             errors.append(f"ashby:{org}:{type(e).__name__}")
     for co in LEVER:
         try:
             raw += from_lever(co)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             errors.append(f"lever:{co}:{type(e).__name__}")
     for cfg in WORKDAY:
         try:
             raw += from_workday(cfg)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             errors.append(f"wd:{cfg['name']}:{type(e).__name__}")
     for feed_url, src in GITHUB_FEEDS:
         try:
             raw += from_github_feed(feed_url, src)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             errors.append(f"{src}:{type(e).__name__}")
     try:
         raw += from_amazon()
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         errors.append(f"amazon:{type(e).__name__}")
     try:
         raw += from_adzuna()
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         errors.append(f"adzuna:{type(e).__name__}")
     # dedupe by url; cap JD length (we now collect whole boards, not just title matches)
     seen, uniq = set(), []
@@ -497,7 +505,7 @@ def _load_suppressions():
                 if "LastEvaluatedKey" not in r:
                     break
                 kw["ExclusiveStartKey"] = r["LastEvaluatedKey"]
-        except Exception as e:  # noqa: BLE001 — suppression is best-effort, never sink the scan
+        except Exception as e:
             print(f"suppress load (table) failed: {type(e).__name__}: {e}")
     try:
         kw = {"TableName": TABLE, "ProjectionExpression": "sig, body, dismissed, tracked"}
@@ -512,12 +520,15 @@ def _load_suppressions():
                     try:
                         b = json.loads(it["body"]["S"])
                         sigs.add(_sig(b.get("company"), b.get("title")))
-                    except Exception:  # noqa: BLE001
+                    # Legacy rows predate the `sig` attribute and may hold any
+                    # shape. Narrowed from bare Exception so a genuine bug in
+                    # _sig() surfaces instead of being silently skipped.
+                    except (ValueError, TypeError, KeyError):
                         pass
             if "LastEvaluatedKey" not in r:
                 break
             kw["ExclusiveStartKey"] = r["LastEvaluatedKey"]
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         print(f"suppress load (openings) failed: {type(e).__name__}: {e}")
     if APPS_TABLE:
         try:
@@ -528,12 +539,15 @@ def _load_suppressions():
                     try:
                         a = json.loads(it["body"]["S"])
                         sigs.add(_sig(a.get("company"), a.get("title")))
-                    except Exception:  # noqa: BLE001
+                    # Legacy rows predate the `sig` attribute and may hold any
+                    # shape. Narrowed from bare Exception so a genuine bug in
+                    # _sig() surfaces instead of being silently skipped.
+                    except (ValueError, TypeError, KeyError):
                         pass
                 if "LastEvaluatedKey" not in r:
                     break
                 kw["ExclusiveStartKey"] = r["LastEvaluatedKey"]
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             print(f"suppress load (apps) failed: {type(e).__name__}: {e}")
     return sigs
 
@@ -624,7 +638,7 @@ def _extract_salary(jd):
         return None
     if m.group(5):  # single value with /hr or /yr
         n = int(m.group(5))
-        val = n * 2080 if re.search(r"/\s?(?:hr|hour)", m.group(0), re.I) or n < 1000 and "k" not in m.group(0).lower() and n < 200 else (n * 1000 if n < 1000 else n)
+        val = n * 2080 if re.search(r"/\s?(?:hr|hour)", m.group(0), re.I) or (n < 1000 and "k" not in m.group(0).lower() and n < 200) else (n * 1000 if n < 1000 else n)
         return (val, val)
 
     def _val(a, b):
@@ -719,7 +733,7 @@ def handler(event, _ctx):
     suppressed_sigs = _load_suppressions()
     for o in openings:
         o["sig"] = _sig(o.get("company"), o.get("title"))       # identity = company|title
-        o["oid"] = hashlib.sha1(o["sig"].encode()).hexdigest()[:16]  # key by sig => auto-dedup
+        o["oid"] = hashlib.sha1(o["sig"].encode(), usedforsecurity=False).hexdigest()[:16]  # dedup key, not a credential
         o["blocked"], o["sponsorRisk"], o["sponsorNote"], o["capExempt"] = _sponsor_verdict(o)
         o["staffing"] = _is_staffing(o.get("company"))
         o["content"] = _content_score(o)

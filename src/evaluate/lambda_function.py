@@ -139,7 +139,7 @@ def _invoke_json(system, user, max_tokens=1200):
             parsed = _first_json(text)
             if parsed:
                 return parsed
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             print(f"evaluate: model {model_id} failed: {type(e).__name__}: {e}")
     return None
 

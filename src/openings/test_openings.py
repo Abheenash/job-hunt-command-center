@@ -5,8 +5,7 @@ import os
 
 os.environ.setdefault("OPENINGS_TABLE", "t")
 
-import lambda_function as L  # noqa: E402
-
+import lambda_function as L
 
 # --- salary extraction -------------------------------------------------------
 

@@ -9,7 +9,7 @@ import json
 import os
 import re
 import time
-from datetime import datetime, timezone
+from datetime import UTC, date, datetime
 
 import boto3
 
@@ -33,7 +33,7 @@ def handler(event, _ctx):
         return {"sent": False, "reason": "no apps"}
 
     now = int(time.time())
-    today = datetime.now(timezone.utc).date()
+    today = datetime.now(UTC).date()
     by = lambda s: sum(1 for a in apps if a.get("status") == s)  # noqa: E731
     total = len(apps)
     active = sum(1 for a in apps if a.get("status") in ACTIVE)
@@ -136,10 +136,13 @@ def _analytics_text(ana):
 
 def _within(date_str, today, days):
     try:
-        d = datetime.strptime(date_str[:10], "%Y-%m-%d").date()
+        # date.fromisoformat avoids building a naive datetime just to throw the
+        # time away — these are calendar dates, not instants, so there is no
+        # timezone to get wrong.
+        d = date.fromisoformat(date_str[:10])
         delta = (d - today).days
         return -3 <= delta <= days  # slightly overdue through the next week
-    except Exception:  # noqa: BLE001
+    except (ValueError, TypeError):
         return False
 
 

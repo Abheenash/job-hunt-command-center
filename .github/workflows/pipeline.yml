@@ -129,3 +129,48 @@ jobs:
         run: |
           terraform init -backend=false
           terraform test
+
+  # Lint, including bandit's security rules. Every exclusion in ruff.toml carries
+  # the reason it is there — a silent exclusion is indistinguishable from a bug
+  # nobody noticed.
+  lint:
+    name: ruff
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/ruff-action@v3
+        with:
+          version: 0.16.8
+          args: check --output-format github
+
+  # GitHub's semantic analysis, free on public repos, reporting into the Security
+  # tab. It reads data flow across files, which neither ruff nor checkov does.
+  codeql:
+    name: CodeQL
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: python
+          queries: security-and-quality
+      - uses: github/codeql-action/analyze@v4
+
+  # Blocks a PR that introduces a dependency with a known vulnerability or a
+  # licence that does not fit. Renovate keeps things current; this stops a bad
+  # one arriving in the first place.
+  dependency-review:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+          comment-summary-in-pr: always

@@ -6,7 +6,7 @@ os.environ.setdefault("AWS_DEFAULT_REGION", "us-east-1")
 os.environ.setdefault("APPS_TABLE", "t")
 os.environ.setdefault("EVENTS_TABLE", "e")
 os.environ.setdefault("DOCS_BUCKET", "b")
-import lambda_function as api  # noqa: E402
+import lambda_function as api
 
 FULL = ('{"scoreBreakdown":[{"dimension":"Required skills","score":80,"note":"good"}],'
         '"matched":["Terraform","AWS"],"atsCovered":["aws","terraform"],"atsMissing":["gcp"],'

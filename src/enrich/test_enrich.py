@@ -4,8 +4,7 @@ import os
 os.environ.setdefault("APPS_TABLE", "apps")
 os.environ.setdefault("EVENTS_TABLE", "events")
 
-import lambda_function as L  # noqa: E402
-
+import lambda_function as L
 
 APPS = [
     {"appId": "1", "company": "Acme Cloud", "contactEmail": "rec@acme.com"},

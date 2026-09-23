@@ -13,16 +13,16 @@ stall ingestion, and every email is retried and DLQ-isolated independently.
 If the secret is still a placeholder (no real credential yet) it logs and no-ops,
 so the schedule stays harmless until the one-time credential is added.
 """
+import contextlib
 import email
 import hashlib
 import imaplib
 import json
 import os
-import time
-from datetime import datetime, timedelta, timezone
-from email.header import decode_header
-
 import re
+import time
+from datetime import UTC, datetime, timedelta
+from email.header import decode_header
 
 import boto3
 
@@ -80,7 +80,7 @@ def _load_credential():
     try:
         raw = secrets.get_secret_value(SecretId=SECRET_ID)["SecretString"]
         c = json.loads(raw)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         print(f"secret unreadable ({type(e).__name__}) — treating as unconfigured")
         return None
     if not c.get("email") or not c.get("app_password") or "REPLACE" in c.get("app_password", ""):
@@ -91,7 +91,7 @@ def _load_credential():
 
 def _fetch_recent(cred):
     out = []
-    since = (datetime.now(timezone.utc) - timedelta(days=LOOKBACK_DAYS)).strftime("%d-%b-%Y")
+    since = (datetime.now(UTC) - timedelta(days=LOOKBACK_DAYS)).strftime("%d-%b-%Y")
     imap = imaplib.IMAP4_SSL(cred["imap_host"])
     try:
         imap.login(cred["email"], cred["app_password"])
@@ -111,21 +111,22 @@ def _fetch_recent(cred):
                     "messageId": m.get("Message-ID", ""),
                     "receivedAt": int(time.time()),
                 })
-            except Exception as e:  # noqa: BLE001 — a single odd email never sinks the whole scan
+            except Exception as e:
                 print(f"skip email {mid}: {type(e).__name__}: {e}")
                 continue
     finally:
-        try:
+        # Best effort: the connection may already be gone, and a failed logout
+        # must not mask whatever the caller was actually doing.
+        with contextlib.suppress(Exception):
             imap.logout()
-        except Exception:  # noqa: BLE001
-            pass
     return out
 
 
 def _eid(msg):
     """Stable per-email id (Message-ID) so re-scans don't duplicate or re-apply."""
     key = msg.get("messageId") or f"{msg.get('from', '')}|{msg.get('subject', '')}"
-    return hashlib.sha1(key.encode("utf-8", "ignore")).hexdigest()
+    # Content addressing, not security — see the note in enrich/.
+    return hashlib.sha1(key.encode("utf-8", "ignore"), usedforsecurity=False).hexdigest()
 
 
 def _existing_event_ids():
@@ -158,7 +159,7 @@ def _decode(s):
     out = ""
     try:
         parts = decode_header(s)
-    except Exception:  # noqa: BLE001 — malformed header → return the raw string
+    except Exception:
         return s if isinstance(s, str) else ""
     for text, enc in parts:
         out += _safe_bytes_decode(text, enc) if isinstance(text, bytes) else text
@@ -171,10 +172,10 @@ def _body_snippet(m):
             if part.get_content_type() == "text/plain":
                 try:
                     return part.get_payload(decode=True).decode("utf-8", "ignore")[:500]
-                except Exception:  # noqa: BLE001
+                except Exception:
                     return ""
         return ""
     try:
         return m.get_payload(decode=True).decode("utf-8", "ignore")[:500]
-    except Exception:  # noqa: BLE001
+    except Exception:
         return ""

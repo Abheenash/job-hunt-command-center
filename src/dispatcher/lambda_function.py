@@ -7,7 +7,6 @@ retried and — after maxReceiveCount — moved to the DLQ. The rest of the batc
 deleted normally. This is the piece that turns "buffered in SQS" into "reliably
 processed exactly-enough-times, poison messages quarantined."
 """
-import json
 import os
 
 import boto3
@@ -26,7 +25,7 @@ def handler(event, _ctx):
             r = sfn.start_sync_execution(stateMachineArn=STATE_MACHINE_ARN, input=rec["body"])
             if r.get("status") != "SUCCEEDED":
                 raise RuntimeError(f"workflow {r.get('status')}: {r.get('error')} / {r.get('cause')}")
-        except Exception as e:  # noqa: BLE001 — isolate this message, keep the batch moving
+        except Exception as e:
             print(f"dispatch failed for {mid}: {type(e).__name__}: {e}")
             failures.append({"itemIdentifier": mid})
     return {"batchItemFailures": failures}

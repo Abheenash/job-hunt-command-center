@@ -4,7 +4,7 @@ import os
 
 os.environ.setdefault("MAX_LETTER_CHARS", "2600")
 
-import lambda_function as L  # noqa: E402
+import lambda_function as L
 
 
 def test_pick_angle_maps_kubernetes():

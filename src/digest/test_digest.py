@@ -5,7 +5,7 @@ os.environ.setdefault("APPS_TABLE", "t")
 os.environ.setdefault("SES_SENDER", "me@x.com")
 os.environ.setdefault("OWNER_EMAIL", "me@x.com")
 
-import lambda_function as L  # noqa: E402
+import lambda_function as L
 
 
 def test_source_key_normalizes():

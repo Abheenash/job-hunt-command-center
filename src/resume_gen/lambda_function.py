@@ -19,16 +19,15 @@ plus skills the user explicitly confirmed they have. It never fabricates.
 """
 import json
 import os
+import profile as P
 import re
 import shutil
 import subprocess
 import uuid
 
 import boto3
-from botocore.exceptions import ClientError
-
-import profile as P
 import templates as T
+from botocore.exceptions import ClientError
 
 bedrock = boto3.client("bedrock-runtime")
 s3 = boto3.client("s3")
@@ -143,7 +142,7 @@ def _load_extras():
     try:
         obj = s3.get_object(Bucket=DOCS_BUCKET, Key=EXTRA_SKILLS_KEY)
         return [s for s in json.loads(obj["Body"].read()).get("skills", []) if s]
-    except Exception:  # noqa: BLE001 — none yet
+    except Exception:
         return []
 
 
@@ -154,7 +153,7 @@ def _list_skills():
 def _add_skill(event):
     try:
         skill = str(json.loads(event.get("body") or "{}").get("skill", "")).strip()
-    except Exception:  # noqa: BLE001
+    except Exception:
         return _resp(400, {"error": "bad body"})
     if not (2 <= len(skill) <= 60):
         return _resp(400, {"error": "skill must be 2-60 chars"})
@@ -170,7 +169,7 @@ def _add_skill(event):
 def _start_job(event):
     try:
         body = json.loads(event.get("body") or "{}")
-    except Exception:  # noqa: BLE001
+    except Exception:
         return _resp(400, {"error": "invalid JSON body"})
     jd = (body.get("jd") or "").strip()
     if len(jd) < 40:
@@ -193,7 +192,7 @@ def _get_status(event):
         return _resp(200, json.loads(obj["Body"].read()))
     except s3.exceptions.NoSuchKey:
         return _resp(200, {"status": "pending"})
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         print(f"status read failed: {type(e).__name__}: {e}")
         return _resp(200, {"status": "pending"})
 
@@ -238,7 +237,7 @@ def _run_job(job, params, ctx):
     try:
         text, model_tag = _invoke(model_key, payload)
         sel = json.loads(_first_json(text))
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         print(f"generate failed: {type(e).__name__}: {e}")
         _write_result(job, {"status": "error", "error": "The model could not generate a résumé. Try again."})
         return {"ok": False}
@@ -296,7 +295,7 @@ def _run_job(job, params, ctx):
             result["pdfStatus"] = "ready"
         else:
             result["pdfStatus"] = "error"
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         print(f"pdf compile failed (non-fatal): {type(e).__name__}: {e}")
         result["pdfStatus"] = "error"
     _write_result(job, result)   # phase 2: PDF url (or error)
@@ -314,7 +313,7 @@ def _seed_cache():
         try:
             shutil.copytree(src, dst)
             print("seeded tectonic cache from layer")
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             print(f"cache seed skipped: {type(e).__name__}: {e}")
 
 
@@ -330,8 +329,14 @@ def _compile(tex, name):
     with open(texpath, "w") as fh:
         fh.write(tex)
     env = dict(os.environ, HOME="/tmp", TECTONIC_CACHE_DIR="/tmp/tct-cache")
-    r = subprocess.run([TECTONIC, texpath, "--outdir", work, "--keep-logs", "--chatter", "minimal"],
-                       cwd=work, env=env, capture_output=True, text=True, timeout=180)
+    # TECTONIC is an absolute path to a binary shipped in this function's own
+    # Lambda layer, and every argument is a path this function constructed. No
+    # part of the command line comes from the request. shell=False (the default)
+    # means there is no shell to inject into either.
+    r = subprocess.run(  # noqa: S603
+        [TECTONIC, texpath, "--outdir", work, "--keep-logs", "--chatter", "minimal"],
+        cwd=work, env=env, capture_output=True, text=True, timeout=180, check=False,
+    )
     pdfpath = os.path.join(work, f"{name}.pdf")
     if r.returncode != 0 or not os.path.exists(pdfpath):
         print(f"tectonic rc={r.returncode}: {r.stderr[-400:]}")
@@ -347,7 +352,10 @@ def _pages(logpath, pdf):
             m = re.search(r"\((\d+)\s+pages?", fh.read())
             if m:
                 return int(m.group(1))
-    except Exception:  # noqa: BLE001
+    # pypdf raises a wide variety of types on a malformed PDF; the regex fallback
+    # below is the point. Narrowed so an ImportError or a bug in our own code is
+    # not mistaken for a bad PDF.
+    except (ValueError, TypeError, KeyError, OSError, AttributeError):
         pass
     return len(re.findall(rb"/Type\s*/Page[^s]", pdf)) or None  # fallback
 

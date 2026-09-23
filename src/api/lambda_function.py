@@ -22,9 +22,8 @@ import time
 import uuid
 
 import boto3
-from botocore.config import Config
-
 import sponsorship as sp
+from botocore.config import Config
 
 s3 = boto3.client("s3", config=Config(signature_version="s3v4"))
 ddb = boto3.client("dynamodb")
@@ -181,7 +180,7 @@ def handler(event, _ctx):
         return _r(404, {"error": "application not found"})
     except PermissionError:
         return _r(403, {"error": "forbidden"})
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         print(f"error: {type(e).__name__}: {e}")
         return _r(500, {"error": "internal error"})
 
@@ -296,7 +295,7 @@ def attach_generated(user, app_id, data):
     dst = f"documents/{user}/{app_id}/{uuid.uuid4()}-resume-tailored.pdf"
     try:
         s3.copy_object(Bucket=BUCKET, CopySource={"Bucket": BUCKET, "Key": src}, Key=dst)
-    except Exception as e:  # noqa: BLE001 — PDF may not exist yet; not fatal
+    except Exception as e:
         print(f"attach-generated: no PDF to copy ({type(e).__name__})")
         return _r(200, {"doc": None})
     return _r(200, {"doc": {"docKey": dst, "filename": "resume-tailored.pdf", "kind": "resume",
@@ -352,7 +351,7 @@ def parse_jd(body):
         resp = bedrock.invoke_model(modelId=BEDROCK_MODEL, body=json.dumps(payload))
         text = json.loads(resp["body"].read())["content"][0]["text"]
         fields = json.loads(_first_json(text))
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         print(f"parse-jd failed: {type(e).__name__}: {e}")
         return _r(502, {"error": "couldn't parse that JD, try again"})
     # keep only known keys
@@ -462,7 +461,7 @@ def ask_ai(user, body):
         resp = bedrock.invoke_model(modelId=BEDROCK_MODEL, body=json.dumps(payload))
         text = json.loads(resp["body"].read())["content"][0]["text"]
         out = json.loads(_first_json(text))
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         print(f"ask failed: {type(e).__name__}: {e}")
         return _r(502, {"error": "couldn't answer that, try again"})
     ids = [i for i in (out.get("appIds") or []) if isinstance(i, str)][:12]
@@ -493,7 +492,7 @@ def _load_suppressed_sigs():
             if "LastEvaluatedKey" not in r:
                 break
             kwargs["ExclusiveStartKey"] = r["LastEvaluatedKey"]
-    except Exception as e:  # noqa: BLE001 — hiding is best-effort, never block the list
+    except Exception as e:
         print(f"suppress sigs lookup failed: {type(e).__name__}: {e}")
     return sigs
 
@@ -510,7 +509,7 @@ def list_openings(user):
     try:
         for a in _user_apps(user):
             hidden.add(_sig(a.get("company"), a.get("title")))
-    except Exception as e:  # noqa: BLE001 — hiding is best-effort, never block the list
+    except Exception as e:
         print(f"list_openings apps lookup failed: {type(e).__name__}: {e}")
     by_sig, kwargs = {}, {"TableName": OPENINGS}
     while True:
@@ -569,7 +568,7 @@ def mark_opening(opening_id, field, extra=None):
         ddb.update_item(TableName=OPENINGS, Key={"openingId": {"S": opening_id}},
                         UpdateExpression=expr, ExpressionAttributeNames=names,
                         ExpressionAttributeValues=vals)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         print(f"mark_opening failed: {type(e).__name__}: {e}")
         return _r(502, {"error": "couldn't update the opening"})
     if SUPPRESS and row:
@@ -578,14 +577,14 @@ def mark_opening(opening_id, field, extra=None):
             try:
                 b = json.loads(row["body"]["S"])
                 sig = _sig(b.get("company"), b.get("title"))
-            except Exception:  # noqa: BLE001
+            except Exception:
                 sig = None
         if sig:
             try:
                 ddb.put_item(TableName=SUPPRESS, Item={
                     "sig": {"S": sig}, "reason": {"S": field}, "at": {"N": str(now)},
                     "expireAt": {"N": str(now + 400 * 86400)}})   # long-lived tombstone
-            except Exception as e:  # noqa: BLE001 — flag on the row still hides it near-term
+            except Exception as e:
                 print(f"suppress write failed: {type(e).__name__}: {e}")
     return _r(200, {"ok": True})
 
@@ -596,7 +595,7 @@ def trigger_scan():
         return _r(400, {"error": "scanner not configured"})
     try:
         lambdac.invoke(FunctionName=SCAN_FN, InvocationType="Event")
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         print(f"scan invoke failed: {type(e).__name__}: {e}")
         return _r(502, {"error": "couldn't start a scan, try again"})
     return _r(202, {"started": True})
@@ -671,7 +670,7 @@ def match_resume(user, app_id):
             print(f"match: hit max_tokens ({body.get('usage', {}).get('output_tokens')}) — repairing")
         out = body["content"][0]["text"]
         result = json.loads(_first_json(out))
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         print(f"match failed: {type(e).__name__}: {e}")
         return _r(502, {"error": "match check failed, try again"})
 
@@ -730,7 +729,7 @@ def interview_prep(user, app_id):
         resp = bedrock.invoke_model(modelId=BEDROCK_MODEL, body=json.dumps(payload))
         out = json.loads(resp["body"].read())["content"][0]["text"]
         prep = json.loads(_first_json(out))
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         print(f"interview-prep failed: {type(e).__name__}: {e}")
         return _r(502, {"error": "prep generation failed, try again"})
 
@@ -756,11 +755,12 @@ def interview_prep(user, app_id):
 def _pdf_text(key):
     try:
         import io
+
         import pypdf
         obj = s3.get_object(Bucket=BUCKET, Key=key)
         reader = pypdf.PdfReader(io.BytesIO(obj["Body"].read()))
         return "\n".join((p.extract_text() or "") for p in reader.pages)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         print(f"pdf_text failed: {type(e).__name__}: {e}")
         return ""
 

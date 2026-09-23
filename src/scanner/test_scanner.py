@@ -5,7 +5,7 @@ os.environ.setdefault("EVENTS_TABLE", "t")
 os.environ.setdefault("SECRET_ID", "s")
 os.environ.setdefault("QUEUE_URL", "https://sqs.local/q")
 
-import lambda_function as L  # noqa: E402
+import lambda_function as L
 
 
 def test_maybe_job_matches_keywords():

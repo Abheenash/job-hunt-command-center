@@ -9,11 +9,8 @@ Input  (state input): the email object {from, subject, snippet, eventId, ...}
 Output (state result): {"msg": <email>, "classification": <triage JSON>}
 """
 import json
-import os
-import re
 
 import boto3
-
 from classifier import classify  # keyword fallback if Bedrock is unavailable
 
 bedrock = boto3.client("bedrock-runtime")
@@ -56,7 +53,7 @@ def _ai_classify(msg):
         resp = bedrock.invoke_model(modelId=BEDROCK_MODEL, body=json.dumps(payload))
         text = json.loads(resp["body"].read())["content"][0]["text"]
         return json.loads(_first_json(text))
-    except Exception as e:  # noqa: BLE001 — degrade to keyword classifier
+    except Exception as e:
         print(f"ai_classify fell back to keywords ({type(e).__name__}: {e})")
         cat, conf, _ = classify(msg.get("subject", ""), msg.get("snippet", ""), msg.get("from", ""))
         return {"jobRelated": cat != "other", "category": cat, "company": "",

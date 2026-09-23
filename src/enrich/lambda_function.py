@@ -132,10 +132,9 @@ def _apply_to_app(app_id, category, msg, r):
         if STATUS_RANK.get(cur, 0) < STATUS_RANK["interview"]:
             rec["status"] = "interview"
             changes.append("moved to interview")
-    elif category == "recruiter_reply":
-        if STATUS_RANK.get(cur, 0) < STATUS_RANK["screen"]:
-            rec["status"] = "screen"
-            changes.append("moved to screen")
+    elif category == "recruiter_reply" and STATUS_RANK.get(cur, 0) < STATUS_RANK["screen"]:
+        rec["status"] = "screen"
+        changes.append("moved to screen")
 
     # 2) enrich — fill missing fields; update pay if the email differs
     sender = _addr(msg.get("from", ""))
@@ -211,7 +210,10 @@ def _is_date(s):
 
 def _eid(msg):
     key = msg.get("messageId") or f"{msg.get('from', '')}|{msg.get('subject', '')}"
-    return hashlib.sha1(key.encode("utf-8", "ignore")).hexdigest()
+    # Content addressing, not security: this is a dedup key, never a credential.
+    # usedforsecurity=False says so to readers and to scanners, and keeps it working
+    # on FIPS-enabled interpreters where bare sha1 raises.
+    return hashlib.sha1(key.encode("utf-8", "ignore"), usedforsecurity=False).hexdigest()
 
 
 def _addr(from_header):

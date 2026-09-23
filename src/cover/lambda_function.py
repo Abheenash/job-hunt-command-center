@@ -117,7 +117,7 @@ def _invoke(system, user):
             resp = bedrock.invoke_model(modelId=model_id, body=json.dumps(payload))
             data = json.loads(resp["body"].read())
             return "".join(b.get("text", "") for b in data.get("content", [])).strip()
-        except Exception as e:  # noqa: BLE001 — fall through the model chain, then to the deterministic letter
+        except Exception as e:
             print(f"cover: model {model_id} failed: {type(e).__name__}: {e}")
     return None
 

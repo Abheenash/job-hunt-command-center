@@ -49,7 +49,7 @@ def handler(event, _ctx):
                      "Body": {"Text": {"Data": body}}},
         )
         print(f"nudged about {len(stale)} stale applications")
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         print(f"SES send failed ({type(e).__name__}): {e}")
     return {"stale": len(stale)}
 

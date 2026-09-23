@@ -1,7 +1,6 @@
 """Offline unit tests for the sponsorship engine (no network / no AWS)."""
 import sponsorship as sp
 
-
 # --- JD language scan --------------------------------------------------------
 
 def test_scan_detects_negative_kill_phrase():

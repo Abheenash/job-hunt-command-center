@@ -8,9 +8,8 @@ reorder for the JD, but it can never emit broken LaTeX, and structure stays inta
 Fabrication is prevented upstream by the prompt (corpus-only) — here we just render.
 Output compiles anywhere (the AWS badge is guarded by \\IfFileExists).
 """
-import re
-
 import profile as P
+import re
 
 _TEX = {"\\": "\\textbackslash{}", "&": "\\&", "%": "\\%", "$": "\\$", "#": "\\#",
         "_": "\\_", "{": "\\{", "}": "\\}", "~": "\\textasciitilde{}", "^": "\\textasciicircum{}"}

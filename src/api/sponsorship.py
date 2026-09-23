@@ -218,7 +218,9 @@ def _simplify_name(company):
 def _fetch_one(query, timeout):
     url = "https://h1bdata.info/index.php?em=" + urllib.parse.quote(query)
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (job-tracker sponsorship check)"})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
+    # The scheme and host are fixed in the literal above; only the query string
+    # varies, and it is percent-encoded. Nothing here can redirect the scheme.
+    with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
         raw = resp.read(4_000_000)
     return parse_h1b(raw.decode("utf-8", "replace"))
 
@@ -236,7 +238,7 @@ def fetch_h1b(company, timeout=6.0):
                     alt["matchedVia"] = simple
                     return alt
         return res
-    except Exception as e:  # noqa: BLE001 — public site; degrade gracefully
+    except Exception as e:
         return {"ok": False, "error": type(e).__name__, "count": 0, "capped": False,
                 "techCount": 0, "recentYear": None, "yearSpan": None, "medianSalary": None,
                 "medianTechSalary": None, "topTitles": [], "employer": None}
