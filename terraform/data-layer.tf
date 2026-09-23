@@ -1,3 +1,15 @@
+# DEPRECATION (aws provider v6): `hash_key` / `range_key` are deprecated in favour
+# of a `key_schema` block, and will eventually become an error.
+#
+# NOT changed yet, deliberately. These tables hold live data (applications,
+# documents, email events). Rewriting a table's key definition can make Terraform
+# plan a REPLACEMENT rather than an in-place update, and a replaced DynamoDB table
+# is an empty one. The migration needs a real `terraform plan` against real state,
+# read carefully, before it is safe — not a find-and-replace.
+#
+# Same applies in openings.tf, and in serverless-file-share and
+# secure-container-pipeline (both of which are torn down between demos, so they
+# are the safe places to try it first).
 # --- DynamoDB: the rich application record + the classified email events -------
 
 resource "aws_dynamodb_table" "applications" {

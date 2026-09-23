@@ -96,3 +96,36 @@ jobs:
           terraform fmt -check -recursive
           terraform init -backend=false
           terraform validate
+
+  # tflint catches what `terraform validate` cannot: unused declarations, missing
+  # provider version constraints, invalid instance types. It found an unpinned
+  # `archive` provider in two of these repos.
+  tflint:
+    name: tflint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: terraform-linters/setup-tflint@v5
+        with:
+          tflint_version: v0.64.0
+      - name: tflint
+        working-directory: ${{ github.workspace }}
+        run: |
+          tflint --init --config="${{ github.workspace }}/.tflint.hcl"
+          tflint --chdir=terraform --config="${{ github.workspace }}/.tflint.hcl"
+
+  # `terraform test` against a mocked provider: no cloud account, no cost. It
+  # asserts the specific promises this repo's README makes — which a generic
+  # scanner cannot know.
+  terraform-test:
+    name: terraform test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: hashicorp/setup-terraform@v3
+        with: { terraform_wrapper: false }
+      - name: terraform test
+        working-directory: ${{ github.workspace }}/terraform
+        run: |
+          terraform init -backend=false
+          terraform test
