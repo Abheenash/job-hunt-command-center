@@ -41,7 +41,7 @@ jobs:
           # outside this list still fails the build.
           skip_check: CKV2_AWS_51,CKV_AWS_68,CKV_AWS_86,CKV_AWS_310,CKV2_AWS_47,CKV2_AWS_29,CKV_AWS_76,CKV_AWS_225,CKV_AWS_120,CKV_AWS_18,CKV_AWS_144,CKV2_AWS_62,CKV_AWS_21,CKV_AWS_145,CKV_AWS_119,CKV_AWS_26,CKV_AWS_50,CKV_AWS_115,CKV_AWS_116,CKV_AWS_117,CKV_AWS_173,CKV_AWS_272,CKV_AWS_158,CKV_AWS_338,CKV_AWS_342,CKV2_AWS_67,CKV2_AWS_32,CKV2_AWS_42,CKV2_AWS_57,CKV2_AWS_61,CKV_AWS_149,CKV_AWS_174,CKV_AWS_374,CKV_VALIDATE_SECRETS
       - name: tfsec (advisory)
-        uses: aquasecurity/tfsec-action@v1.0.0
+        uses: aquasecurity/tfsec-action@v1.0.3
         with:
           working_directory: terraform/
           soft_fail: true
@@ -67,7 +67,7 @@ jobs:
       AWS_DEFAULT_REGION: us-east-1 # boto3 clients are built at module import (no API calls)
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with: { python-version: "3.13" }
       - run: pip install pytest boto3 # boto3: several modules build clients at import (no API calls)
       - name: Every Lambda's tests (each src/<fn>/ with a test_*.py)
@@ -93,7 +93,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v4
       - name: fmt + validate
         working-directory: terraform
         run: |
@@ -109,7 +109,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: terraform-linters/setup-tflint@v5
+      - uses: terraform-linters/setup-tflint@v6
         with:
           tflint_version: v0.64.0
       - name: tflint
@@ -126,7 +126,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v4
         with: { terraform_wrapper: false }
       - name: terraform test
         working-directory: ${{ github.workspace }}/terraform
@@ -178,7 +178,7 @@ jobs:
       pull-requests: write
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/dependency-review-action@v4
+      - uses: actions/dependency-review-action@v5
         with:
           fail-on-severity: high
           comment-summary-in-pr: always
